@@ -30,6 +30,24 @@ class ActorNet(Module):
         x = F.softmax(self.l2(x), dim=-1)
         return x
 
+class ContinuousActorNet(Module):
+    def __init__(self, hidden_size, num_programs):
+        super(ContinuousActorNet, self).__init__()
+        self.program1 = Linear(hidden_size, hidden_size//2)
+        self.program2 = Linear(hidden_size//2, num_programs)
+
+        self.vector1 = Linear(hidden_size, hidden_size//2)
+        self.vector2 = Linear(hidden_size//2, 2)
+
+    def forward(self, hidden_state):
+        program = F.relu(self.program1(hidden_state))
+        program = F.softmax(self.program2(program), dim=-1)
+
+        vector = F.relu(self.vector1(hidden_state))
+        vector = 10*F.tanh(self.vector2(vector))
+
+        return program, vector
+
 
 class Policy(Module):
     """This class represents the NPI policy containing the environment encoder, the key-value and program embedding
