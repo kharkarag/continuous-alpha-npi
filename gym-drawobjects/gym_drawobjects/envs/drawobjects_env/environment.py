@@ -9,6 +9,7 @@ from gym import error, spaces, utils
 from gym.utils import seeding
 
 import numpy as np
+from skimage.draw import line
 
 from .gui import GUI
 from .labels import LABELS
@@ -29,9 +30,9 @@ class DrawObjectsEnv(gym.Env):
 
         self.width = 200
         self.height = 200
-        self.stride = 2
+        self.stride = 1
         self.label_idx = 1
-        self.current_pix = np.array([100.5,100.5])
+        self.current_pix = np.array([100,100])
 
         self.last_reward = 0
 
@@ -62,7 +63,7 @@ class DrawObjectsEnv(gym.Env):
         self.current_canvas = self._create_new_canvas()
         self.current_pixel_data = self.current_canvas.load()
         # start at center
-        self.current_pos = (self.width // 2 + 0.5, self.height // 2 + 0.5)
+        self.current_pos = (self.width // 2, self.height // 2)
         return self._observe()
 
     def _redraw(self):
@@ -78,42 +79,58 @@ class DrawObjectsEnv(gym.Env):
 
         self._redraw()
         return None
-        
+
     def _apply_action(self, action):
-        self.current_pixel_data[self.current_pos] = 0
+        target = self.current_pos + self.stride*action.astype(int)
+        rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
 
-        target = self.current_pos + 2*action.astype(int)
-        current_pixel = (int(self.current_pos[0]), int(self.current_pos[1]))
+        for r, c in zip(rr, cc):
+            self.current_pixel_data[int(r), int(c)] = 0
+
+        self.current_pos = target
         
-        while (target < [self.width-2, self.height-2]).all() and (target > 1).all():
-            nex = np.copy(self.current_pos)
+    # def _apply_action(self, action):
+    #     self.current_pixel_data[self.current_pos] = 0
 
-            for i in range(len(self.current_pos)):
-                if action[i] >= 0:
-                    nex[i] = np.floor(self.current_pos[i] + np.sign(action[i]))
-                else:
-                    nex[i] = np.ceil(self.current_pos[i] + np.sign(action[i]))
+    #     target = self.current_pos + self.stride*action.astype(int)
+    #     current_pixel = (int(self.current_pos[0]), int(self.current_pos[1]))
+    #     self.current_pixel_data[current_pixel] = 0
+    #     print(f"Target: {target}")
 
-            deltas = (nex - self.current_pos) / action
-            min_idx = np.argmin(np.abs(deltas))
+    #     while not (target == self.current_pos).all() and (target < [self.width-2, self.height-2]).all() and (target > 1).all():
+    #         nex = np.copy(self.current_pos)
 
-            maj_length = (deltas*action)[min_idx]
-            min_length = action[1-min_idx]/action[min_idx] * maj_length
+    #         for i in range(len(self.current_pos)):
+    #             if action[i] >= 0:
+    #                 nex[i] = np.floor(self.current_pos[i] + np.sign(action[i]))
+    #             else:
+    #                 nex[i] = np.ceil(self.current_pos[i] + np.sign(action[i]))
 
-            if min_idx == 0:
-                self.current_pos = (self.current_pos[0] + maj_length, self.current_pos[1] + min_length)
-            else:
-                self.current_pos = (self.current_pos[0] + min_length, self.current_pos[1] + maj_length)
+    #         deltas = (nex - self.current_pos) / action
+    #         min_idx = np.argmin(np.abs(deltas))
 
-            current_pixel = (int(self.current_pos[0]), int(self.current_pos[1]))
-            self.current_pixel_data[current_pixel] = 0
 
-            if (np.abs(self.current_pos - target) < [1,1]).all() \
-            or (np.array(self.current_pos) > [self.width-2, self.height-2]).any() \
-            or (np.array(self.current_pos) < 1).any():
-                break
+    #         maj_length = (deltas*action)[min_idx]
+    #         min_length = action[1-min_idx]/action[min_idx] * maj_length
 
-        self.current_pos = (current_pixel[0] + 0.5, current_pixel[1] + 0.5)
+    #         if min_idx == 0:
+    #             self.current_pos = (self.current_pos[0] + maj_length, self.current_pos[1] + min_length)
+    #         else:
+    #             self.current_pos = (self.current_pos[0] + min_length, self.current_pos[1] + maj_length)
+
+    #         current_pixel = (int(self.current_pos[0]), int(self.current_pos[1]))
+    #         self.current_pixel_data[current_pixel] = 0
+
+    #         if (np.abs(self.current_pos - target) <= [0.5,0.5]).all() \
+    #         or (np.array(self.current_pos) > [self.width-2, self.height-2]).any() \
+    #         or (np.array(self.current_pos) < 1).any():
+    #             break
+        
+    #     print(f"Current: {self.current_pos}")
+    #     print(f"Action: {action}")
+    #     self.current_pos = (current_pixel[0] + 0.5*np.sign(action[0]), current_pixel[1] + 0.5*np.sign(action[1]))
+    #     print(self.current_pos)
+
 
     def _observe(self):
         return np.array(self.current_canvas, dtype=np.float)/255.0

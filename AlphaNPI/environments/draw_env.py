@@ -1,7 +1,9 @@
+import os
 import sys
 import time
 import math
 from PIL import Image
+from skimage.draw import line, circle_perimeter
 
 import numpy as np
 import torch
@@ -9,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from environments.environment import Environment
 
+REF_IMG_DIR = "ref_img"
 
 class DrawEnvEncoder(nn.Module):
     '''
@@ -54,10 +57,19 @@ class DrawEnv(Environment):
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
 
+        self.ref_programs = dict()
+        for img_file in os.listdir(REF_IMG_DIR):
+            img = Image.open(img_file)
+            self.ref_programs[img_file[:-4].capitalize()] = img.load()
+
+
         if hierarchy:
             self.programs_library = {'STOP': {'level': -1, 'recursive': False},
                                      'MOVE': {'level': 0, 'recursive': False},
-                                     'LINE': {'level': 1, 'recursive': False},
+                                     'ULINE': {'level': 1, 'recursive': False},
+                                     'DLINE': {'level': 1, 'recursive': False},
+                                     'LLINE': {'level': 1, 'recursive': False},
+                                     'RLINE': {'level': 1, 'recursive': False},
                                      'CIRCLE': {'level': 1, 'recursive': False},
                                      'TRIANGLE': {'level': 2, 'recursive': False},
                                      'LSHAPE': {'level': 2, 'recursive': False},
@@ -73,11 +85,17 @@ class DrawEnv(Environment):
                                          'MOVE': self._move_precondition,
                                         }
 
-            self.prog_to_postcondition = {'LINE': self._line_postcondition,
+            square_vertices = [(100,100), (50,100), (50, 50), (100, 50), (100,100)]
+            triangle_vertices = [(100,100), (125,75), (150, 100), (100,100)]
+
+            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-50, 0]),
+                                          'DLINE': self._line_postcondition([50, 0]),
+                                          'LLINE': self._line_postcondition([0, -50]),
+                                          'RLINE': self._line_postcondition([0, 50]),
                                           'CIRCLE': self._circle_postcondition,
-                                          'TRIANGLE': self._triangle_postcondition,
-                                          'LSHAPE': self._lshape_postcondition,
-                                          'SQUARE': self._square_postcondition
+                                          'TRIANGLE': self._shape_postcondition(triangle_vertices),
+                                          'LSHAPE': self._shape_postcondition('LSHAPE'), #TODO
+                                          'SQUARE': self._shape_postcondition(square_vertices)
                                          }
 
         else:
@@ -97,7 +115,7 @@ class DrawEnv(Environment):
                                          'MOVE': self._move_precondition,
                                         }
 
-            self.prog_to_postcondition = {'BUBBLESORT': self._bubblesort_postcondition}
+            self.prog_to_postcondition = {'FIGURE': self._figure_postcondition}
 
         super(DrawEnv, self).__init__(self.programs_library, self.prog_to_func,
                                                self.prog_to_precondition, self.prog_to_postcondition)
@@ -110,42 +128,54 @@ class DrawEnv(Environment):
     def _stop_precondition(self):
         return True
 
+    def _move(self, action):
+        target = self.current_pos + self.stride*action.astype(int)
+        rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
 
-    def _move(self):
-        self.current_pixel_data[self.current_pos] = 0
+        for r, c in zip(rr, cc):
+            self.current_pixel_data[int(r), int(c)] = 0
 
-        target = self.current_pos + 2*action.astype(int)
-        current_pixel = (int(self.current_pos[0]), int(self.current_pos[1]))
+        self.current_pos = target
+
+    def _move_precondition(self):
+        return True
+
+    def _line_postcondition(self, direction):
+        def _line(self, init_state, state):
+            init_canvas, init_position = init_state
+            canvas, position = state
+
+            drawn_canvas = np.copy(init_canvas)
+            rr, cc = line(init_position[0], init_position[1], init_position[0] + direction[0], init_position[1] + direction[1])
+            drawn_canvas[rr, cc] = 0
+
+            return np.equal(drawn_canvas, canvas) and np.equal(position, init_position + direction)
         
-        while (target < [self.width-2, self.height-2]).all() and (target > 1).all():
-            nex = np.copy(self.current_pos)
+        return _line
 
-            for i in range(len(self.current_pos)):
-                if action[i] >= 0:
-                    nex[i] = np.floor(self.current_pos[i] + np.sign(action[i]))
-                else:
-                    nex[i] = np.ceil(self.current_pos[i] + np.sign(action[i]))
+    def _circle_postcondition(self, init_state, state):
+        init_canvas, init_position = init_state
+        canvas, position = state
 
-            deltas = (nex - self.current_pos) / action
-            min_idx = np.argmin(np.abs(deltas))
+        drawn_canvas = np.copy(init_canvas)
+        rr, cc = circle_perimeter(init_canvas[0], init_canvas[1], 25)
+        drawn_canvas[rr, cc] = 0
 
-            maj_length = (deltas*action)[min_idx]
-            min_length = action[1-min_idx]/action[min_idx] * maj_length
+        return np.equal(drawn_canvas, canvas) and np.equal(position, init_position)
 
-            if min_idx == 0:
-                self.current_pos = (self.current_pos[0] + maj_length, self.current_pos[1] + min_length)
-            else:
-                self.current_pos = (self.current_pos[0] + min_length, self.current_pos[1] + maj_length)
+    def _shape_postcondition(self, vertices):
+        def _shape(self, init_state, state):
+            init_canvas, init_position = init_state
+            canvas, position = state
 
-            current_pixel = (int(self.current_pos[0]), int(self.current_pos[1]))
-            self.current_pixel_data[current_pixel] = 0
+            drawn_canvas = np.copy(init_canvas)
+            for i, vertex in enumerate(vertices[1:], start=1):
+                rr, cc = line(vertices[i-1][0], vertices[i-1][1], vertex[0], vertex[1])
+                drawn_canvas[rr, cc] = 0
+            return np.equal(drawn_canvas, canvas) and np.equal(position, init_position)
 
-            if (np.abs(self.current_pos - target) < [1,1]).all() \
-            or (np.array(self.current_pos) > [self.width-2, self.height-2]).any() \
-            or (np.array(self.current_pos) < 1).any():
-                break
-
-        self.current_pos = (current_pixel[0] + 0.5, current_pixel[1] + 0.5)
+        return _shape
+    
 
     def _one_hot_encode(self, digit, basis=10):
         """One hot encode a digit with basis.
@@ -198,7 +228,7 @@ class DrawEnv(Environment):
 
         """
         assert self.has_been_reset, 'Need to reset the environment before getting states'
-        return self.current_canvas.copy(), self.current_pix
+        return np.copy(self.current_pixel_data), self.current_pix
 
     def get_observation(self):
         """Returns an observation of the current state.
@@ -216,6 +246,9 @@ class DrawEnv(Environment):
         """
         return self.dim ** 2
 
+    def _create_new_canvas(self):
+        return Image.new('L', (self.width, self.height), 'white')
+
     def reset_to_state(self, state):
         """
 
@@ -227,7 +260,6 @@ class DrawEnv(Environment):
         self.current_canvas = state[0].copy()
         self.current_pixel_data = self.current_canvas.load()
         self.current_pix = state[1]
-
 
     def get_state_str(self, state):
         """Print a graphical representation of the environment state"""
