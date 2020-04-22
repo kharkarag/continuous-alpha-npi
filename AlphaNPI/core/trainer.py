@@ -1,4 +1,4 @@
-from core.mcts import MCTS
+from core.mcts import ContinuousMCTS
 import torch
 
 class Trainer():
@@ -39,7 +39,7 @@ class Trainer():
         traces_lengths = []
         for _ in range(self.num_validation_episodes):
             # Start new episode
-            mcts = MCTS(self.policy, self.env, task_index, **self.mcts_test_params)
+            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_test_params)
 
             # Sample an execution trace with mcts using policy as a prior
             trace = mcts.sample_execution_trace()
@@ -65,7 +65,7 @@ class Trainer():
         for episode in range(self.num_episodes_per_task):
 
             # Start new episode
-            mcts = MCTS(self.policy, self.env, task_index, **self.mcts_train_params)
+            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_train_params)
 
             # Sample an execution trace with mcts using policy as a prior
             res = mcts.sample_execution_trace()

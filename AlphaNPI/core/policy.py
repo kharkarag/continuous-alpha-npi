@@ -19,16 +19,16 @@ class CriticNet(Module):
         return x
 
 
-class ActorNet(Module):
-    def __init__(self, hidden_size, num_programs):
-        super(ActorNet, self).__init__()
-        self.l1 = Linear(hidden_size, hidden_size//2)
-        self.l2 = Linear(hidden_size//2, num_programs)
-
-    def forward(self, hidden_state):
-        x = F.relu(self.l1(hidden_state))
-        x = F.softmax(self.l2(x), dim=-1)
-        return x
+# class ActorNet(Module):
+#     def __init__(self, hidden_size, num_programs):
+#         super(ActorNet, self).__init__()
+#         self.l1 = Linear(hidden_size, hidden_size//2)
+#         self.l2 = Linear(hidden_size//2, num_programs)
+#
+#     def forward(self, hidden_state):
+#         x = F.relu(self.l1(hidden_state))
+#         x = F.softmax(self.l2(x), dim=-1)
+#         return x
 
 class ContinuousActorNet(Module):
     def __init__(self, hidden_size, num_programs):
@@ -83,7 +83,7 @@ class Policy(Module):
 
         self.lstm = LSTMCell(self.encoding_dim + self.embedding_dim, self._hidden_size)
         self.critic = CriticNet(self._hidden_size)
-        self.actor = ActorNet(self._hidden_size, self.num_programs)
+        self.actor = ContinuousActorNet(self._hidden_size, self.num_programs)
 
         self.init_networks()
         self.init_optimizer(lr=learning_rate)

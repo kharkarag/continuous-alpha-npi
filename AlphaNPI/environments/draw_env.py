@@ -64,16 +64,16 @@ class DrawEnv(Environment):
 
 
         if hierarchy:
-            self.programs_library = {'STOP': {'level': -1, 'recursive': False},
-                                     'MOVE': {'level': 0, 'recursive': False},
-                                     'ULINE': {'level': 1, 'recursive': False},
-                                     'DLINE': {'level': 1, 'recursive': False},
-                                     'LLINE': {'level': 1, 'recursive': False},
-                                     'RLINE': {'level': 1, 'recursive': False},
-                                     'CIRCLE': {'level': 1, 'recursive': False},
-                                     'TRIANGLE': {'level': 2, 'recursive': False},
-                                     'LSHAPE': {'level': 2, 'recursive': False},
-                                     'SQUARE': {'level': 3, 'recursive': False}
+            self.programs_library = {'STOP': {'level': -1, 'recursive': False, "continuous":False, "crange":None},
+                                     'MOVE': {'level': 0, 'recursive': False, "continuous":True, "crange":[0,360]},
+                                     'ULINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'CIRCLE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'TRIANGLE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
+                                     'LSHAPE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
+                                     'SQUARE': {'level': 3, 'recursive': False, "continuous":False, "crange":None}
                                      }
             for idx, key in enumerate(sorted(list(self.programs_library.keys()))):
                 self.programs_library[key]['index'] = idx
