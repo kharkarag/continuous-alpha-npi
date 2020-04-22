@@ -42,11 +42,11 @@ class SimpleDrawEnv(Environment):
 
     def __init__(self, length=10, encoding_dim=32, hierarchy=True):
 
-        assert dim > 0, "length must be a positive integer"
-        self.dim = dim
+        assert length > 0, "length must be a positive integer"
+        self.dim = length
         self.current_canvas = self._create_new_canvas()
         self.current_pixel_data = self.current_canvas.load()
-        self.current_pix = np.array([dim/2]*2)
+        self.current_pix = np.array([length/2]*2)
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
 
@@ -56,9 +56,13 @@ class SimpleDrawEnv(Environment):
                                      'DOWN': {'level': 0, 'recursive': False},
                                      'LEFT': {'level': 0, 'recursive': False},
                                      'RIGHT': {'level': 0, 'recursive': False},
-                                     'UR_L': {'level': 1, 'recursive': False},
-                                     'RU_L': {'level': 1, 'recursive': False},
-                                     'SQUARE': {'level': 2, 'recursive': False}}
+                                     'UP_LINE': {'level': 1, 'recursive': False},
+                                     'DOWN_LINE': {'level': 1, 'recursive': False},
+                                     'LEFT_LINE': {'level': 1, 'recursive': False},
+                                     'RIGHT_LINE': {'level': 1, 'recursive': False},
+                                     'UR_L': {'level': 2, 'recursive': False},
+                                     'RU_L': {'level': 2, 'recursive': False},
+                                     'SQUARE': {'level': 3, 'recursive': False}}
             for idx, key in enumerate(sorted(list(self.programs_library.keys()))):
                 self.programs_library[key]['index'] = idx
 
@@ -73,6 +77,10 @@ class SimpleDrawEnv(Environment):
                                          'DOWN': self._down_precondition,
                                          'LEFT': self._left_precondition,
                                          'RIGHT': self._right_precondition,
+                                         'UP_LINE': self._up_line_precondition,
+                                         'DOWN_LINE': self._down_line_precondition,
+                                         'LEFT_LINE': self._left_line_precondition,
+                                         'RIGHT_LINE': self._right_line_precondition,
                                          'UR_L': self._ur_l_precondition,
                                          'RU_L': self._ru_l_precondition,
                                          'SQUARE': self._square_precondition,

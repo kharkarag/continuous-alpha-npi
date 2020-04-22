@@ -36,17 +36,17 @@ class ContinuousActorNet(Module):
         self.program1 = Linear(hidden_size, hidden_size//2)
         self.program2 = Linear(hidden_size//2, num_programs)
 
-        self.vector1 = Linear(hidden_size, hidden_size//2)
-        self.vector2 = Linear(hidden_size//2, 2)
+        self.beta1 = Linear(hidden_size, hidden_size//2)
+        self.beta2 = Linear(hidden_size//2, 2)
 
     def forward(self, hidden_state):
         program = F.relu(self.program1(hidden_state))
         program = F.softmax(self.program2(program), dim=-1)
 
-        vector = F.relu(self.vector1(hidden_state))
-        vector = 10*F.tanh(self.vector2(vector))
+        beta = F.relu(self.beta1(hidden_state))
+        beta = F.relu(self.beta2(beta))
 
-        return program, vector
+        return program, beta
 
 
 class Policy(Module):
