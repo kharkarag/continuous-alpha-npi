@@ -1,4 +1,5 @@
 import torch
+from torch.distributions.beta import Beta
 from torch.nn import Linear, LSTMCell, Module, Embedding
 from torch.nn.init import uniform_
 import torch.nn.functional as F
@@ -64,7 +65,7 @@ class Policy(Module):
         learning_rate (float, optional): Defaults to 10^-3.
     """
     def __init__(self, encoder, hidden_size, num_programs, num_non_primary_programs, embedding_dim,
-                 encoding_dim, indices_non_primary_programs, learning_rate=1e-3):
+                 encoding_dim, indices_non_primary_programs, learning_rate=1e-3, temperature=0.1):
 
         super(Policy, self).__init__()
 
@@ -84,6 +85,8 @@ class Policy(Module):
         self.lstm = LSTMCell(self.encoding_dim + self.embedding_dim, self._hidden_size)
         self.critic = CriticNet(self._hidden_size)
         self.actor = ContinuousActorNet(self._hidden_size, self.num_programs)
+
+        self.temperature = temperature
 
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
@@ -178,14 +181,27 @@ class Policy(Module):
         self.optimizer.zero_grad()
         policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
 
-        policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-        value_loss = torch.pow(value_predictions - value_labels, 2).mean()
+        # policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
 
-        total_loss = (policy_loss + value_loss) / 2
+        beta = Beta(policy_predictions[0], policy_predictions[1])
+        policy_action = beta.sample()
+        prob_action = beta.log_prob(policy_action)
+
+        log_mcts = self.temperature * torch.log(policy_labels)
+        with torch.no_grad():
+            modified_kl = prob_action - log_mcts
+
+        policy_loss = -modified_kl * (torch.log(modified_kl) + prob_action)
+        entropy_loss = self.entropy_lambda * beta.entropy()
+        
+        policy_network_loss = policy_loss + entropy_loss
+        value_network_loss = torch.pow(value_predictions - value_labels, 2).mean()
+
+        total_loss = (policy_network_loss + value_network_loss) / 2
         total_loss.backward()
         self.optimizer.step()
 
-        return policy_loss, value_loss, total_loss
+        return policy_network_loss, value_network_loss, total_loss
 
     def forward_once(self, e_t, i_t, h, c):
         """Run one NPI inference using predict.
