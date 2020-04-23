@@ -80,7 +80,7 @@ class ContinuousMCTS:
         c_actions = {}
         #This will give the index for each available program
         for prog_index in [prog_idx for prog_idx, x in enumerate(mask) if x == 1]:
-            pname = self.evn.get_program_from_index(prog_index)
+            pname = self.env.get_program_from_index(prog_index)
             if self.env.programs_library[pname]['continuous'] == True:
                 crange  = self.env.programs_library[pname]['crange']
                 Dist_val = np.random.beta(betaD[0],betaD[1])
@@ -93,8 +93,8 @@ class ContinuousMCTS:
 
 
     def check_widening(self, node):
-        continuous_children_num = int(cpw * node["visit_count"] ** kappa)
-        continuous_children_previous= int(cpw * (node["visit_count"]-1.0) ** kappa)
+        continuous_children_num = int(self.cpw * node["visit_count"] ** self.kappa)
+        continuous_children_previous= int(self.cpw * (node["visit_count"]-1.0) ** self.kappa)
         #If m(s) =int( cpw * n(s)^(kappa) ) increased you need to add another node
         if continuous_children_num> continuous_children_previous:
             program_index, observation, env_state, h, c, depth, Beta_Parameters = (
@@ -111,14 +111,14 @@ class ContinuousMCTS:
 
             # This will give the index for each available program
             for prog_index in [prog_idx for prog_idx, x in enumerate(mask) if x == 1]:
-                pname = self.evn.get_program_from_index(prog_index)
+                pname = self.env.get_program_from_index(prog_index)
                 if self.env.programs_library[pname]['continuous'] == True:
                     child_prior= 0.0
                     for n in node["childs"]:
-                        if self.evn.get_program_from_index(n["program_index"]) == pname:
+                        if self.env.get_program_from_index(n["program_index"]) == pname:
                             child_prior = n["prior"]
                     crange = self.env.programs_library[pname]['crange']
-                    Dist_val = np.random.beta(betaD[0], betaD[1])
+                    Dist_val = np.random.beta(Beta_Parameters[0], Beta_Parameters[1])
                     new_cval = crange[0] + crange[1] * Dist_val
                     #Need to do a search to get the sum of the priors of the other programs of same type and mult by dist
 
@@ -137,7 +137,8 @@ class ContinuousMCTS:
                         "c_lstm": c.clone(),
                         "selected": False,
                         "depth": depth + 1,
-                        "cval": new_cval
+                        "cval": new_cval,
+                        "Beta_Parameters":Beta_Parameters
                     }
                     node["childs"].append(new_child)
 
@@ -166,8 +167,11 @@ class ContinuousMCTS:
 
         with torch.no_grad():
             mask = self.env.get_mask_over_actions(program_index)
-
-            priors, betaD, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
+            print(mask)
+            actorOut, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
+            priors = actorOut[0]
+            betaD = actorOut[1]
+            betaD = torch.flatten(betaD)
             # mask actions
             priors = priors * torch.FloatTensor(mask)
             priors = torch.squeeze(priors)
@@ -180,6 +184,7 @@ class ContinuousMCTS:
         c_children = self.continuous_children(program_index, betaD)
         # Initialize its children with its probability of being chosen
         for prog_index in [prog_idx for prog_idx, x in enumerate(mask) if x == 1]:
+            program_name = self.env.get_program_from_index(prog_index)
             #May want to change this.  It relies on it being a new node so there will only be one continuous value as no widening will have happened
             cval = None
             if prog_index in c_children:
@@ -200,7 +205,7 @@ class ContinuousMCTS:
                 "selected": False,
                 "depth": depth + 1,
                 "cval": cval,
-                "Beta_Parameters": None
+                "Beta_Parameters": betaD
             }
             node["childs"].append(new_child)
 
@@ -407,8 +412,9 @@ class ContinuousMCTS:
                 self.rewards.append(None)
 
                 # Spend some time expanding the tree from your current root node
-                for _ in range(self.number_of_simulations):
+                for j in range(self.number_of_simulations):
                     # run a simulation
+                    print("play episode number: " +str(j))
                     self.recursive_call = False
                     simulation_max_depth_reached, has_expanded_node, node, value = self._run_simulation(root_node)
 
