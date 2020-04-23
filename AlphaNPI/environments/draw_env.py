@@ -22,16 +22,42 @@ class DrawEnvEncoder(nn.Module):
 
     def __init__(self, observation_dim, encoding_dim):
         super(DrawEnvEncoder, self).__init__()
-        channels = [2, 10, 30]
-        self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1, dilation=0)
-        self.conv2 = nn.Conv2d(channels[1], channels[2], 3, padding=1, dilation=0)
-        self.conv3 = nn.Conv2d(channels[2], encoding_dim, 3, padding=1, dilation=0)
+        channels = [1, 10, 30]
+        self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1)
+        self.conv2 = nn.Conv2d(channels[1], channels[2], 3, padding=1)
+        self.conv3 = nn.Conv2d(channels[2], encoding_dim, 3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.ln1 = nn.Linear(20000, encoding_dim)
+
+        #Before Changes
+        # channels = [1, 10, 30]
+        # self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1)
+        # self.conv2 = nn.Conv2d(channels[1], channels[2], 3, padding=1)
+        # self.conv3 = nn.Conv2d(channels[2], encoding_dim, 3, padding=1)
+
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = torch.sigmoid(self.conv3(x))
+        #We need to resphape the input because it is being passed in flat because the other programs wouldn't need convolutions
+        x = x.view(-1,1,200,200)
+        # if x.size()[0]!=32:
+        #     print("DRAWENV BATCH SIZE NOT WHAT IT IS EXPECTING")
+        #     print(x.size()[0])
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = torch.flatten(x)
+        x = F.relu(self.ln1(x))
         return x
+
+        # #Before Changes
+        # #We need to resphape the input because it is being passed in flat because the other programs wouldn't need convolutions
+        # x = x.view(-1,1,200,200)
+        # x = F.relu(self.conv1(x))
+        # x = F.relu(self.conv2(x))
+        # x = torch.sigmoid(self.conv3(x))
+        # return x
+
+
 
 class DrawEnv(Environment):
     """Class that represents a list environment. It represents a list of size length of digits. The digits are 10-hot-encoded.
@@ -56,9 +82,12 @@ class DrawEnv(Environment):
         self.width = dim
         self.height = dim
         self.current_canvas = self._create_new_canvas()
-        self.current_pixel_data = self.current_canvas.load()
+
+        self.current_pixel_data = np.array(self.current_canvas)
+
+        # self.current_pixel_data = self.current_canvas.load()
         self.current_pix = np.array([dim/2 + 0.5]*2)
-        self.stride = 5
+        self.stride = 1
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
 
@@ -82,19 +111,27 @@ class DrawEnv(Environment):
 
             self.prog_to_precondition = {'STOP': self._stop_precondition,
                                          'MOVE': self._move_precondition,
-                                        }
+                                         'ULINE': self._line_precondition,
+                                         # 'DLINE': self._line_precondition,
+                                         # 'LLINE': self._line_precondition,
+                                         # 'RLINE': self._line_precondition,
+                                         # 'CIRCLE': self._circle_precondition,
+                                         # 'TRIANGLE': self._shape_precondition,
+                                         # 'LSHAPE': self._shape_precondition,
+                                         # 'SQUARE': self._shape_precondition
+                                         }
 
             square_vertices = [(100,100), (50,100), (50, 50), (100, 50), (100,100)]
             triangle_vertices = [(100,100), (125,75), (150, 100), (100,100)]
 
-            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-50, 0]),
-                                          'DLINE': self._line_postcondition([50, 0]),
-                                          'LLINE': self._line_postcondition([0, -50]),
-                                          'RLINE': self._line_postcondition([0, 50]),
-                                          'CIRCLE': self._circle_postcondition,
-                                          'TRIANGLE': self._shape_postcondition(triangle_vertices),
-                                          'LSHAPE': self._shape_postcondition('LSHAPE'), #TODO
-                                          'SQUARE': self._shape_postcondition(square_vertices)
+            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-5, 0]),
+                                          # 'DLINE': self._line_postcondition([50, 0]),
+                                          # 'LLINE': self._line_postcondition([0, -50]),
+                                          # 'RLINE': self._line_postcondition([0, 50]),
+                                          # 'CIRCLE': self._circle_postcondition,
+                                          # 'TRIANGLE': self._shape_postcondition(triangle_vertices),
+                                          # 'LSHAPE': self._shape_postcondition('LSHAPE'), #TODO
+                                          # 'SQUARE': self._shape_postcondition(square_vertices)
                                          }
 
         else:
@@ -128,30 +165,70 @@ class DrawEnv(Environment):
         return True
 
     def _move(self, action):
-        cartesian = cmath.rect(action, self.stride)
+        #This finds the target pixel to move to
+        cartesian = cmath.rect(self.stride, action)
         movement = np.array([cartesian.real, cartesian.imag])
+        target = self.current_pos + movement
+        if target[0]>=0.0 and target[0]<= self.dim and target[1]>=0.0 and target[1]<= self.dim:
+            #This is probably an inefficient way to find the pixels the line moves through
+            x_move =  np.linspace(self.current_pos[0], target[0], num = 10 * self.stride)
+            y_move = np.linspace(self.current_pos[1], target[1], num = 10 * self.stride)
+            for p in range(x_move.shape[0]):
+                self.current_pixel_data[int(x_move[p]), int(y_move[p])] = 0.0
+            self.current_pos = target
 
-        target = self.current_pos + self.stride*movement.astype(int)
-        rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
-        self.current_pixel_data[rr, cc] = 0
 
-        self.current_pos = target
+
+        #Find pixels line passes through
+        # rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
+        # self.current_pixel_data[rr, cc] = 0
+
+        # self.current_pos = target
+
+        # cartesian = cmath.rect(action, self.stride)
+        # movement = np.array([cartesian.real, cartesian.imag])
+        #
+        # target = self.current_pos + self.stride*movement.astype(int)
+        # rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
+        # self.current_pixel_data[rr, cc] = 0
+        #
+        # self.current_pos = target
 
     def _move_precondition(self):
         return True
 
+    def _line_precondition(self):
+        return True
+
     def _line_postcondition(self, direction):
-        def _line(self, init_state, state):
+        def _line(init_state, state):
+
             init_canvas, init_position = init_state
             canvas, position = state
-
             drawn_canvas = np.copy(init_canvas)
-            rr, cc = line(init_position[0], init_position[1], init_position[0] + direction[0], init_position[1] + direction[1])
-            drawn_canvas[rr, cc] = 0
+            target = init_position + direction
+            # This is probably an inefficient way to find the pixels the line moves through
+            x_move = np.linspace(init_position[0], target[0], num=int(10.0 * np.linalg.norm(direction)))
+            y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(direction)))
+            for p in range(x_move.shape[0]):
+                drawn_canvas[int(x_move[p]), int(y_move[p])] = 0.0
 
-            return np.equal(drawn_canvas, canvas) and np.equal(position, init_position + direction)
+            return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + direction)) , drawn_canvas
+
+            # ######################################
+            # init_canvas, init_position = init_state
+            # canvas, position = state
+            #
+            # drawn_canvas = np.copy(init_canvas)
+            # rr, cc = line(init_position[0], init_position[1], init_position[0] + direction[0], init_position[1] + direction[1])
+            # drawn_canvas[rr, cc] = 0
+            #
+            # return np.equal(drawn_canvas, canvas) and np.equal(position, init_position + direction)
         
         return _line
+
+    def _circle_precondition(self):
+        return True
 
     def _circle_postcondition(self, init_state, state):
         init_canvas, init_position = init_state
@@ -163,8 +240,11 @@ class DrawEnv(Environment):
 
         return np.equal(drawn_canvas, canvas) and np.equal(position, init_position)
 
+    def _shape_precondition(self):
+        return True
+
     def _shape_postcondition(self, vertices):
-        def _shape(self, init_state, state):
+        def _shape( init_state, state):
             init_canvas, init_position = init_state
             canvas, position = state
 
@@ -214,11 +294,12 @@ class DrawEnv(Environment):
         """
         # start with an empty white canvas
         self.current_canvas = self._create_new_canvas()
-        self.current_pixel_data = self.current_canvas.load()
+        self.current_pixel_data = np.array(self.current_canvas)
         # start at center
         self.current_pos = (self.width // 2 + 0.5, self.height // 2 + 0.5)
-        return self._observe()
         self.has_been_reset = True
+        return self.get_observation()
+
 
     def get_state(self):
         """Returns the current state.
@@ -236,7 +317,8 @@ class DrawEnv(Environment):
         Returns:
             an observation of the current state
         """
-        return np.array(self.current_pixel_data, dtype=np.float)/255.0
+        return np.array(self.current_canvas, dtype=np.float)/255.0
+
 
     def get_observation_dim(self):
         """
@@ -257,8 +339,8 @@ class DrawEnv(Environment):
         reset the environment is the given state
 
         """
-        self.current_canvas = state[0].copy()
-        self.current_pixel_data = self.current_canvas.load()
+        # self.current_canvas = state[0].copy()
+        self.current_pixel_data = state[0].copy()
         self.current_pix = state[1]
 
     def get_state_str(self, state):
@@ -290,16 +372,20 @@ class DrawEnv(Environment):
         """Returns a reward for the current task at hand.
 
         Returns:
-            1 if the task at hand has been solved, 0 otherwise.
+            Score based on how close the drawn image is to the target image.
 
         """
         task_init_state = self.tasks_dict[len(self.tasks_list)]
         canvas, location = self.get_state()
         current_task = self.get_program_from_index(self.current_task_index)
         #This should return the canvas I want
-        target_canvas = self.prog_to_postcondition[current_task]
+        post_program = self.prog_to_postcondition[current_task]
+        done, target_canvas = post_program(task_init_state,self.get_state())
+        if done:
+            score = 1000
+            return score
         score = 0.0
-        width,height= cur_canvas.size
+        width,height= target_canvas.shape
         #I'll need to redo this if we add a gaussian around the line
         for h in range(height):
             for w in range(width):

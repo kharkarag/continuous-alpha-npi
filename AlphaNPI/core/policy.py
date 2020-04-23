@@ -45,7 +45,7 @@ class ContinuousActorNet(Module):
         program = F.softmax(self.program2(program), dim=-1)
 
         beta = F.relu(self.beta1(hidden_state))
-        beta = F.relu(self.beta2(beta))
+        beta = F.softplus(self.beta2(beta))
 
         return program, beta
 
@@ -154,7 +154,9 @@ class Policy(Module):
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
         p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
 
-        new_h, new_c = self.lstm(torch.cat([s_t, p_t], -1), (h_t, c_t))
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(1,-1), p_t], -1), (h_t, c_t))
+
+        # new_h, new_c = self.lstm(torch.cat([s_t, p_t], -1), (h_t, c_t))
 
         actor_out = self.actor(new_h)
         critic_out = self.critic(new_h)

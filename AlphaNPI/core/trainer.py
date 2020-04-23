@@ -63,7 +63,7 @@ class Trainer():
 
         # Start training on the task
         for episode in range(self.num_episodes_per_task):
-
+            print("play iteration episode number: " + str(episode))
             # Start new episode
             mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_train_params)
 

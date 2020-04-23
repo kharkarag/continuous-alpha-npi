@@ -115,7 +115,7 @@ class ContinuousMCTS:
                 if self.env.programs_library[pname]['continuous'] == True:
                     child_prior= 0.0
                     for n in node["childs"]:
-                        if self.env.get_program_from_index(n["program_index"]) == pname:
+                        if self.env.get_program_from_index(n["program_from_parent_index"]) == pname:
                             child_prior = n["prior"]
                     crange = self.env.programs_library[pname]['crange']
                     Dist_val = np.random.beta(Beta_Parameters[0], Beta_Parameters[1])
@@ -138,7 +138,8 @@ class ContinuousMCTS:
                         "selected": False,
                         "depth": depth + 1,
                         "cval": new_cval,
-                        "Beta_Parameters":Beta_Parameters
+                        "Beta_Parameters":Beta_Parameters,
+                        "Parent_program_name":self.env.get_program_from_index(prog_index)
                     }
                     node["childs"].append(new_child)
 
@@ -167,7 +168,6 @@ class ContinuousMCTS:
 
         with torch.no_grad():
             mask = self.env.get_mask_over_actions(program_index)
-            print(mask)
             actorOut, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
             priors = actorOut[0]
             betaD = actorOut[1]
@@ -184,7 +184,7 @@ class ContinuousMCTS:
         c_children = self.continuous_children(program_index, betaD)
         # Initialize its children with its probability of being chosen
         for prog_index in [prog_idx for prog_idx, x in enumerate(mask) if x == 1]:
-            program_name = self.env.get_program_from_index(prog_index)
+            # program_name = self.env.get_program_from_index(prog_index)
             #May want to change this.  It relies on it being a new node so there will only be one continuous value as no widening will have happened
             cval = None
             if prog_index in c_children:
@@ -205,7 +205,8 @@ class ContinuousMCTS:
                 "selected": False,
                 "depth": depth + 1,
                 "cval": cval,
-                "Beta_Parameters": betaD
+                "Beta_Parameters": betaD,
+                "Parent_program_name": self.env.get_program_from_index(prog_index)
             }
             node["childs"].append(new_child)
 
@@ -264,6 +265,9 @@ class ContinuousMCTS:
                 if q_val_action > best_val:
                     best_val = q_val_action
                     best_child = child
+
+        if best_child == None:
+            print("best child is none")
 
         return best_child
 
@@ -330,7 +334,6 @@ class ContinuousMCTS:
                 node = self._estimate_q_val(node)
                 program_to_call_index = node['program_from_parent_index']
                 program_to_call = self.env.get_program_from_index(program_to_call_index)
-
                 if program_to_call_index == self.env.programs_library['STOP']['index']:
                     stop = True
 
@@ -414,7 +417,8 @@ class ContinuousMCTS:
                 # Spend some time expanding the tree from your current root node
                 for j in range(self.number_of_simulations):
                     # run a simulation
-                    print("play episode number: " +str(j))
+                    # print(root_node['depth'])
+                    # print("play episode number: " +str(j))
                     self.recursive_call = False
                     simulation_max_depth_reached, has_expanded_node, node, value = self._run_simulation(root_node)
 
@@ -467,7 +471,7 @@ class ContinuousMCTS:
 
                 # Apply chosen action
                 #TODO CHECK THIS TO MAKE SURE IT'S RETURNING THE PROGRAM NAME
-                if self.env.get_program_from_index(root_node["childs"][program_to_call_index]["program_index"]) == 'STOP':
+                if self.env.get_program_from_index(root_node["program_from_parent_index"]) == 'STOP':
                     stop = True
                 else:
                     self.env.reset_to_state(root_node["env_state"])
