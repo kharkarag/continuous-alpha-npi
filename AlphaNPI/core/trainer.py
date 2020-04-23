@@ -1,4 +1,4 @@
-from core.mcts import ContinuousMCTS
+from core.continuous_mcts import ContinuousMCTS
 import torch
 
 class Trainer():

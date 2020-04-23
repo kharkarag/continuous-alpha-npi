@@ -1,4 +1,4 @@
-from environments.list_env import ListEnv, ListEnvEncoder
+from environments.draw_env import DrawEnv, DrawEnvEncoder
 from core.curriculum import CurriculumScheduler
 from core.policy import Policy
 import core.config as conf

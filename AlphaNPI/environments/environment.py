@@ -173,7 +173,7 @@ class Environment(ABC):
         """
         assert self.has_been_reset, 'Need to reset the environment before acting'
         assert primary_action in self.primary_actions, 'action {} is not defined'.format(primary_action)
-        if parameter1 = None:
+        if parameter1 == None:
             self.prog_to_func[primary_action]()
         else:
             self.prog_to_func[primary_action](parameter1)

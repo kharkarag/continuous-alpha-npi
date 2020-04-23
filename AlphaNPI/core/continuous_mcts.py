@@ -415,7 +415,7 @@ class ContinuousMCTS:
                     # get reward
                     if not simulation_max_depth_reached and not has_expanded_node:
                         # if node corresponds to end of an episode, backprogagate real reward
-                        reward = self.env.get_reward()
+                        reward = self.env.get_reward() - root_node['depth']/100.0
                         if reward > 0:
                             value = self.env.get_reward() * (self.gamma ** node['depth'])
                             if self.recursive_task and not self.recursive_call:

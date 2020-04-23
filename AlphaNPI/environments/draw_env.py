@@ -52,6 +52,9 @@ class DrawEnv(Environment):
 
         assert dim > 0, "length must be a positive integer"
         self.dim = dim
+        #Added this in case we think we need a non square env
+        self.width = dim
+        self.height = dim
         self.current_canvas = self._create_new_canvas()
         self.current_pixel_data = self.current_canvas.load()
         self.current_pix = np.array([dim/2 + 0.5]*2)
@@ -61,15 +64,15 @@ class DrawEnv(Environment):
 
         if hierarchy:
             self.programs_library = {'STOP': {'level': -1, 'recursive': False, "continuous":False, "crange":None},
-                                     'MOVE': {'level': 0, 'recursive': False, "continuous":True, "crange":[0,360]},
-                                     'ULINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     'CIRCLE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     'TRIANGLE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
-                                     'LSHAPE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
-                                     'SQUARE': {'level': 3, 'recursive': False, "continuous":False, "crange":None}
+                                     'MOVE': {'level': 0, 'recursive': False, "continuous":True, "crange":[0,2*np.pi]},
+                                     'ULINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None}
+                                     # 'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     # 'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     # 'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     # 'CIRCLE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     # 'TRIANGLE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
+                                     # 'LSHAPE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
+                                     # 'SQUARE': {'level': 3, 'recursive': False, "continuous":False, "crange":None}
                                      }
             for idx, key in enumerate(sorted(list(self.programs_library.keys()))):
                 self.programs_library[key]['index'] = idx
@@ -281,3 +284,29 @@ class DrawEnv(Environment):
         bool &= np.array_equal(state1[0].load(), state2[0].load())
         bool &= (state1[1] == state2[1])
         return bool
+
+
+    def get_reward(self):
+        """Returns a reward for the current task at hand.
+
+        Returns:
+            1 if the task at hand has been solved, 0 otherwise.
+
+        """
+        task_init_state = self.tasks_dict[len(self.tasks_list)]
+        canvas, location = self.get_state()
+        current_task = self.get_program_from_index(self.current_task_index)
+        #This should return the canvas I want
+        target_canvas = self.prog_to_postcondition[current_task]
+        score = 0.0
+        width,height= cur_canvas.size
+        #I'll need to redo this if we add a gaussian around the line
+        for h in range(height):
+            for w in range(width):
+                if target_canvas[h,w] == 0.0 and  canvas[h,w] == 0.0:
+                    score += 1.0
+                else:
+                    if target_canvas[h,w] == 255.0 and canvas[h,w] == 0.0:
+                        score -= 1.0
+
+        return score
