@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import math
+import cmath
 from PIL import Image
 from skimage.draw import line, circle_perimeter
 
@@ -54,14 +55,9 @@ class DrawEnv(Environment):
         self.current_canvas = self._create_new_canvas()
         self.current_pixel_data = self.current_canvas.load()
         self.current_pix = np.array([dim/2 + 0.5]*2)
+        self.stride = 5
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
-
-        self.ref_programs = dict()
-        for img_file in os.listdir(REF_IMG_DIR):
-            img = Image.open(img_file)
-            self.ref_programs[img_file[:-4].capitalize()] = img.load()
-
 
         if hierarchy:
             self.programs_library = {'STOP': {'level': -1, 'recursive': False, "continuous":False, "crange":None},
@@ -129,11 +125,12 @@ class DrawEnv(Environment):
         return True
 
     def _move(self, action):
-        target = self.current_pos + self.stride*action.astype(int)
-        rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
+        cartesian = cmath.rect(action, self.stride)
+        movement = np.array([cartesian.real, cartesian.imag])
 
-        for r, c in zip(rr, cc):
-            self.current_pixel_data[int(r), int(c)] = 0
+        target = self.current_pos + self.stride*movement.astype(int)
+        rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
+        self.current_pixel_data[rr, cc] = 0
 
         self.current_pos = target
 
