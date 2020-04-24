@@ -47,6 +47,7 @@ class Trainer():
 
             validation_rewards.append(task_reward)
             traces_lengths.append(trace_length)
+        print(validation_rewards)
         return validation_rewards, traces_lengths, progs_failed_indices
 
     def play_iteration(self, task_index, verbose=False):
@@ -87,8 +88,8 @@ class Trainer():
                 #for idx in programs_failed_indices:
                     #self.curriculum_scheduler.update_statistics(idx, torch.FloatTensor([0.0]))
 
-
             # Train policy on batch
+            # temp =  self.buffer.get_memory_length()
             if self.buffer.get_memory_length() > self.batch_size:
                 for _ in range(self.num_updates_per_episode):
                     batch = self.buffer.sample_batch(self.batch_size)

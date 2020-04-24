@@ -81,9 +81,9 @@ class DrawEnv(Environment):
         #Added this in case we think we need a non square env
         self.width = dim
         self.height = dim
-        self.current_canvas = self._create_new_canvas()
+        self.current_canvas = np.array(self._create_new_canvas())
 
-        self.current_pixel_data = np.array(self.current_canvas)
+        # self.current_pixel_data = np.array(self.current_canvas)
 
         # self.current_pixel_data = self.current_canvas.load()
         self.current_pix = np.array([dim/2 + 0.5]*2)
@@ -168,31 +168,31 @@ class DrawEnv(Environment):
         #This finds the target pixel to move to
         cartesian = cmath.rect(self.stride, action)
         movement = np.array([cartesian.real, cartesian.imag])
-        target = self.current_pos + movement
+        target = self.current_pix + movement
         if target[0]>=0.0 and target[0]<= self.dim and target[1]>=0.0 and target[1]<= self.dim:
             #This is probably an inefficient way to find the pixels the line moves through
-            x_move =  np.linspace(self.current_pos[0], target[0], num = 10 * self.stride)
-            y_move = np.linspace(self.current_pos[1], target[1], num = 10 * self.stride)
+            x_move =  np.linspace(self.current_pix[0], target[0], num = 10 * self.stride)
+            y_move = np.linspace(self.current_pix[1], target[1], num = 10 * self.stride)
             for p in range(x_move.shape[0]):
-                self.current_pixel_data[int(x_move[p]), int(y_move[p])] = 0.0
-            self.current_pos = target
+                self.current_canvas[int(x_move[p]), int(y_move[p])] = 0.0
+            self.current_pix = target
 
 
 
         #Find pixels line passes through
-        # rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
+        # rr, cc = line(self.current_pix[0], self.current_pix[1], target[0], target[1])
         # self.current_pixel_data[rr, cc] = 0
 
-        # self.current_pos = target
+        # self.current_pix = target
 
         # cartesian = cmath.rect(action, self.stride)
         # movement = np.array([cartesian.real, cartesian.imag])
         #
-        # target = self.current_pos + self.stride*movement.astype(int)
-        # rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
+        # target = self.current_pix + self.stride*movement.astype(int)
+        # rr, cc = line(self.current_pix[0], self.current_pix[1], target[0], target[1])
         # self.current_pixel_data[rr, cc] = 0
         #
-        # self.current_pos = target
+        # self.current_pix = target
 
     def _move_precondition(self):
         return True
@@ -206,7 +206,7 @@ class DrawEnv(Environment):
             init_canvas, init_position = init_state
             canvas, position = state
             drawn_canvas = np.copy(init_canvas)
-            target = init_position + direction
+            target = np.array(init_position) + np.array(direction)
             # This is probably an inefficient way to find the pixels the line moves through
             x_move = np.linspace(init_position[0], target[0], num=int(10.0 * np.linalg.norm(direction)))
             y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(direction)))
@@ -293,10 +293,10 @@ class DrawEnv(Environment):
 
         """
         # start with an empty white canvas
-        self.current_canvas = self._create_new_canvas()
-        self.current_pixel_data = np.array(self.current_canvas)
+        self.current_canvas = np.array(self._create_new_canvas())
+        # self.current_pixel_data = np.array(self.current_canvas)
         # start at center
-        self.current_pos = (self.width // 2 + 0.5, self.height // 2 + 0.5)
+        self.current_pix = (self.width // 2 + 0.5, self.height // 2 + 0.5)
         self.has_been_reset = True
         return self.get_observation()
 
@@ -309,7 +309,7 @@ class DrawEnv(Environment):
 
         """
         assert self.has_been_reset, 'Need to reset the environment before getting states'
-        return np.copy(self.current_pixel_data), self.current_pix
+        return np.copy(self.current_canvas), self.current_pix
 
     def get_observation(self):
         """Returns an observation of the current state.
@@ -340,7 +340,7 @@ class DrawEnv(Environment):
 
         """
         # self.current_canvas = state[0].copy()
-        self.current_pixel_data = state[0].copy()
+        self.current_canvas = state[0].copy()
         self.current_pix = state[1]
 
     def get_state_str(self, state):
@@ -381,6 +381,9 @@ class DrawEnv(Environment):
         #This should return the canvas I want
         post_program = self.prog_to_postcondition[current_task]
         done, target_canvas = post_program(task_init_state,self.get_state())
+        # print(str(task_init_state[1][0])+ '   ' +str(task_init_state[1][1])+ '   ' +str( location[0])+ '   ' +str(location[1])+ '   ' )
+        # if task_init_state[1][0]!=  location[0] or task_init_state[1][1]!=  location[1]:
+        #     print("location_init: " + str(task_init_state[1]) + '   current: '  + str(location))
         if done:
             score = 1000
             return score
@@ -389,10 +392,15 @@ class DrawEnv(Environment):
         #I'll need to redo this if we add a gaussian around the line
         for h in range(height):
             for w in range(width):
-                if target_canvas[h,w] == 0.0 and  canvas[h,w] == 0.0:
-                    score += 1.0
-                else:
-                    if target_canvas[h,w] == 255.0 and canvas[h,w] == 0.0:
-                        score -= 1.0
+                # print(str(target_canvas[h,w]) + '  ' + str(canvas[h,w]) )
 
+                # if target_canvas[h,w] == 0:
+                #     print(str(h) + '  ' + str(w))
+
+                if target_canvas[h,w] == 0 and  canvas[h,w] == 0:
+                    score += 2.0
+                else:
+                    if target_canvas[h,w] == 255 and canvas[h,w] == 0:
+                        score -= 1.0
+        # print(score)
         return score

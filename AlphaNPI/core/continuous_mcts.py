@@ -85,6 +85,7 @@ class ContinuousMCTS:
                 crange  = self.env.programs_library[pname]['crange']
                 Dist_val = np.random.beta(betaD[0],betaD[1])
                 new_cval = crange[0] + crange[1] * Dist_val
+                # print(new_cval)
                 c_actions[prog_index] = {"cval": new_cval}
         return c_actions
 
@@ -172,6 +173,7 @@ class ContinuousMCTS:
             priors = actorOut[0]
             betaD = actorOut[1]
             betaD = torch.flatten(betaD)
+            # print(str(betaD[0])+  '  ' + str(betaD[1]) + '  '  + str(np.random.beta(betaD[0],betaD[1])))
             # mask actions
             priors = priors * torch.FloatTensor(mask)
             priors = torch.squeeze(priors)
@@ -338,7 +340,6 @@ class ContinuousMCTS:
                     stop = True
 
                 elif self.env.programs_library[program_to_call]['level'] == 0:
-                    #TODO ACT NEEDS TO BE CHANGED TO ACCEPT PARAMETER
                     observation = self.env.act(program_to_call, node["cval"])
                     node['observation'] = observation
                     node['env_state'] = self.env.get_state()
@@ -418,7 +419,7 @@ class ContinuousMCTS:
                 for j in range(self.number_of_simulations):
                     # run a simulation
                     # print(root_node['depth'])
-                    # print("play episode number: " +str(j))
+                    print("play episode number: " +str(j))
                     self.recursive_call = False
                     simulation_max_depth_reached, has_expanded_node, node, value = self._run_simulation(root_node)
 

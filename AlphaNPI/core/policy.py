@@ -179,7 +179,7 @@ class Policy(Module):
 
         policy_labels = torch.squeeze(torch.stack(batch[3]))
         value_labels = torch.stack(batch[4]).view(-1, 1)
-
+        # print(value_labels)
         self.optimizer.zero_grad()
         policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
 
