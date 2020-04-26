@@ -1,0 +1,49 @@
+digraph g{ 
+    0 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [8 5 5 4 9 7 8 2 2 2], p1 : 0, p2 : 0 <br/> prior : None,  qvalue : 0.68 <br/> depth : 0 </FONT>>]
+    {rank=same; 0;}
+    0 -> 1 [ color=red, label=<<FONT POINT-SIZE="10">RESET</FONT>>];
+    1 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [8 5 5 4 9 7 8 2 2 2], p1 : 0, p2 : 0 <br/> prior : 0.65,  qvalue : 0.67 <br/> depth : 1 </FONT>>]
+    {rank=same; 1;}
+    1 -> 2 [ color=red, label=<<FONT POINT-SIZE="10">BUBBLE</FONT>>];
+    2 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [5 5 4 8 7 8 2 2 2 9], p1 : 9, p2 : 9 <br/> prior : 0.84,  qvalue : 0.67 <br/> depth : 2 </FONT>>]
+    {rank=same; 2;}
+    2 -> 3 [ color=red, label=<<FONT POINT-SIZE="10">RESET</FONT>>];
+    3 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [5 5 4 8 7 8 2 2 2 9], p1 : 0, p2 : 0 <br/> prior : 0.99,  qvalue : 0.67 <br/> depth : 3 </FONT>>]
+    {rank=same; 3;}
+    3 -> 4 [ color=red, label=<<FONT POINT-SIZE="10">BUBBLE</FONT>>];
+    4 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [5 4 5 7 8 2 2 2 8 9], p1 : 9, p2 : 9 <br/> prior : 0.94,  qvalue : 0.67 <br/> depth : 4 </FONT>>]
+    {rank=same; 4;}
+    4 -> 5 [ color=red, label=<<FONT POINT-SIZE="10">RESET</FONT>>];
+    5 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [5 4 5 7 8 2 2 2 8 9], p1 : 0, p2 : 0 <br/> prior : 0.99,  qvalue : 0.66 <br/> depth : 5 </FONT>>]
+    {rank=same; 5;}
+    5 -> 6 [ color=red, label=<<FONT POINT-SIZE="10">BUBBLE</FONT>>];
+    6 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 5 5 7 2 2 2 8 8 9], p1 : 9, p2 : 9 <br/> prior : 0.94,  qvalue : 0.66 <br/> depth : 6 </FONT>>]
+    {rank=same; 6;}
+    6 -> 7 [ color=red, label=<<FONT POINT-SIZE="10">RESET</FONT>>];
+    7 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 5 5 7 2 2 2 8 8 9], p1 : 0, p2 : 0 <br/> prior : 0.98,  qvalue : 0.66 <br/> depth : 7 </FONT>>]
+    {rank=same; 7;}
+    7 -> 8 [ color=red, label=<<FONT POINT-SIZE="10">BUBBLE</FONT>>];
+    8 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 5 5 2 2 2 7 8 8 9], p1 : 9, p2 : 9 <br/> prior : 0.94,  qvalue : 0.66 <br/> depth : 8 </FONT>>]
+    {rank=same; 8;}
+    8 -> 9 [ color=red, label=<<FONT POINT-SIZE="10">RESET</FONT>>];
+    9 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 5 5 2 2 2 7 8 8 9], p1 : 0, p2 : 0 <br/> prior : 0.98,  qvalue : 0.65 <br/> depth : 9 </FONT>>]
+    {rank=same; 9;}
+    9 -> 10 [ color=red, label=<<FONT POINT-SIZE="10">BUBBLE</FONT>>];
+    10 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 5 2 2 2 5 7 8 8 9], p1 : 9, p2 : 9 <br/> prior : 0.94,  qvalue : 0.65 <br/> depth : 10 </FONT>>]
+    {rank=same; 10;}
+    10 -> 11 [ color=red, label=<<FONT POINT-SIZE="10">RESET</FONT>>];
+    11 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 5 2 2 2 5 7 8 8 9], p1 : 0, p2 : 0 <br/> prior : 0.98,  qvalue : 0.65 <br/> depth : 11 </FONT>>]
+    {rank=same; 11;}
+    11 -> 12 [ color=red, label=<<FONT POINT-SIZE="10">BUBBLE</FONT>>];
+    12 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 2 2 2 5 5 7 8 8 9], p1 : 9, p2 : 9 <br/> prior : 0.94,  qvalue : 0.64 <br/> depth : 12 </FONT>>]
+    {rank=same; 12;}
+    12 -> 13 [ color=red, label=<<FONT POINT-SIZE="10">RESET</FONT>>];
+    13 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [4 2 2 2 5 5 7 8 8 9], p1 : 0, p2 : 0 <br/> prior : 0.98,  qvalue : 0.64 <br/> depth : 13 </FONT>>]
+    {rank=same; 13;}
+    13 -> 14 [ color=red, label=<<FONT POINT-SIZE="10">BUBBLE</FONT>>];
+    14 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [2 2 2 4 5 5 7 8 8 9], p1 : 9, p2 : 9 <br/> prior : 0.94,  qvalue : 0.64 <br/> depth : 14 </FONT>>]
+    {rank=same; 14;}
+    14 -> 15 [ color=red, label=<<FONT POINT-SIZE="10">STOP</FONT>>];
+    15 [label=<<FONT POINT-SIZE="10">prog : BUBBLESORT <br/> env state: list: [2 2 2 4 5 5 7 8 8 9], p1 : 9, p2 : 9 <br/> prior : 1.00,  qvalue : 0.63 <br/> depth : 15 </FONT>>]
+    {rank=same; 15;}
+}

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # <nbformat>4</nbformat>
 
+import copy
+import multiprocessing
 import numpy as np
 import torch
 from scipy import stats
@@ -284,20 +286,32 @@ class ContinuousMCTS:
         visits_policy = []
         for i, child in enumerate(root_node["childs"]):
             if child["prior"] > 0.0:
-                visits_policy.append([i, child["visit_count"]])
+                visits_policy.append([i, child["visit_count"], child["cval"]])
 
-        mcts_policy = torch.zeros(1, len(root_node["childs"]))
-        for i, visit in visits_policy:
+
+        policy_best = min(10, len(root_node["childs"]))
+
+        mcts_policy = torch.zeros(2, len(root_node["childs"]))
+        for i, visit, cval in visits_policy:
             mcts_policy[0, i] = visit
+            mcts_policy[1, i] = cval if cval is not None else 0
+
+        indices = torch.argsort(mcts_policy[0], dim=0, descending=True)
+        # print(f"Policy size: {list(mcts_policy.size())}")
+        best_indices = indices[:policy_best]
+        # print(f"Best size: {list(best_indices.size())}")
+        # print((mcts_policy, best_indices))
+        mcts_policy = mcts_policy[:, best_indices].unsqueeze(0)
 
         if self.exploit:
-            mcts_policy = mcts_policy / mcts_policy.sum()
-            return mcts_policy / mcts_policy.sum(), int(torch.argmax(mcts_policy))
+            mcts_policy[0][0] = mcts_policy[0][0] / mcts_policy[0][0].sum()
+            return mcts_policy / mcts_policy.sum(), int(torch.argmax(mcts_policy[0][0]))
 
         else:
-            mcts_policy = torch.pow(mcts_policy, self.temperature)
-            mcts_policy = mcts_policy / mcts_policy.sum()
-            return mcts_policy, int(torch.multinomial(mcts_policy, 1)[0, 0])
+            mcts_policy[0][0] = torch.pow(mcts_policy[0][0], self.temperature)
+            mcts_policy[0][0] = mcts_policy[0][0] / mcts_policy[0][0].sum()
+            # print(list(mcts_policy.size()))
+            return mcts_policy, int(torch.multinomial(mcts_policy[0][0], 1)[0])
 
 
 
@@ -382,6 +396,120 @@ class ContinuousMCTS:
 
         return max_depth_reached, has_expanded_a_node, node, value
 
+    def _run_simulation_parallel(self, node, root_depth):
+        """Run one simulation in tree. This function is recursive.
+
+        Args:
+          node: root node to run the simulation from
+          program_index: index of the current calling program
+
+        Returns:
+            (if the max depth has been reached or not, if a node has been expanded or not, node reached at the end of the simulation)
+
+        """
+
+        stop = False
+        max_depth_reached = False
+        max_recursion_reached = False
+        has_expanded_a_node = False
+        value = None
+        program_level = self.env.get_program_level_from_index(node['program_index'])
+
+        while not stop and not max_depth_reached and not has_expanded_a_node and self.clean_sub_executions and not max_recursion_reached:
+
+            if node['depth'] >= self.max_depth_dict[program_level]:
+                max_depth_reached = True
+
+            elif len(node['childs']) == 0:
+                _, value, state_h, state_c = self._expand_node(node)
+                has_expanded_a_node = True
+
+            else:
+                node = self._estimate_q_val(node)
+                program_to_call_index = node['program_from_parent_index']
+                program_to_call = self.env.get_program_from_index(program_to_call_index)
+                if program_to_call_index == self.env.programs_library['STOP']['index']:
+                    stop = True
+
+                elif self.env.programs_library[program_to_call]['level'] == 0:
+                    #TODO ACT NEEDS TO BE CHANGED TO ACCEPT PARAMETER
+                    observation = self.env.act(program_to_call, node["cval"])
+                    node['observation'] = observation
+                    node['env_state'] = self.env.get_state()
+
+                else:
+                    # check if call corresponds to a recursive call
+                    if program_to_call_index == self.task_index:
+                        self.recursive_call = True
+                    # if never been done, compute new tree to execute program
+                    if node['visit_count'] == 0.0:
+
+                        if self.recursion_depth >= self.max_recursion_depth:
+                            max_recursion_reached = True
+                            continue
+
+                        sub_mcts_init_state = self.env.get_state()
+                        sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params)
+                        sub_trace = sub_mcts.sample_execution_trace()
+                        sub_task_reward, sub_root_node = sub_trace[7], sub_trace[6]
+
+                        # if save sub tree is true, then store sub root node
+                        if self.save_sub_trees:
+                            node['sub_root_node'] = sub_root_node
+                        # allows tree saving of first non zero program encountered
+
+                        # check that sub tree executed correctly
+                        self.clean_sub_executions &= (sub_task_reward > -1.0)
+                        if not self.clean_sub_executions:
+                            print('program {} did not execute correctly'.format(program_to_call))
+                            self.programs_failed_indices.append(program_to_call_index)
+                            #self.programs_failed_indices += sub_mcts.programs_failed_indices
+                            self.programs_failed_initstates.append(sub_mcts_init_state)
+
+                        observation = self.env.get_observation()
+                    else:
+                        self.env.reset_to_state(node['env_state'])
+                        observation = self.env.get_observation()
+
+                    node['observation'] = observation
+                    node['env_state'] = self.env.get_state()
+
+        # get reward
+        if not max_depth_reached and not has_expanded_a_node:
+            # if node corresponds to end of an episode, backprogagate real reward
+            reward = self.env.get_reward() - root_depth/100.0
+            if reward > 0:
+                value = self.env.get_reward() * (self.gamma ** node['depth'])
+                if self.recursive_task and not self.recursive_call:
+                    # if recursive task but do not called itself, add penalization
+                    value -= self.recursive_penalty
+            else:
+                value = -1.0
+
+        elif max_depth_reached:
+            # if episode stops because the max depth allowed was reached, then reward = -1
+            value = -1.0
+
+        value = float(value)
+
+        #THIS IS THE ONLY PLACE VISIT COUNT IS INCREMENTED SO IT WIDENS HERE
+        # Propagate information backwards
+
+
+        chain = []
+
+        while node["parent"] is not None:
+            node["visit_count"] = 1
+            node["total_action_value"] = [value]
+            #TODO DOUBLE CHECK IT'S UPDATING BY REFERENCE
+            chain.append(node)
+            node = node["parent"]
+        # Root node is not included in the while loop
+        self.root_node["total_action_value"] = [value]
+        self.root_node["visit_count"] = 1
+
+        return self.root_node, chain.reverse(), self.clean_sub_executions
+
     def _play_episode(self, root_node):
         """Performs an MCTS search using the policy network as a prior and returns a sequence of improved decisions.
 
@@ -459,6 +587,9 @@ class ContinuousMCTS:
                 # Sample next action
                 mcts_policy, program_to_call_index = self._sample_policy(root_node)
 
+                # print(len(root_node["childs"]))
+                # print(program_to_call_index)
+
                 if self.env.get_program_from_index(root_node["childs"][program_to_call_index]["program_index"]) == self.env.get_program_from_index(self.task_index):
                     self.global_recursive_call = True
 
@@ -478,6 +609,97 @@ class ContinuousMCTS:
 
         return root_node, max_depth_reached
 
+    def _play_episode_parallel(self, root_node):
+        """Performs an MCTS search using the policy network as a prior and returns a sequence of improved decisions.
+
+        Args:
+          root_node: Root node of the tree.
+
+        Returns:
+            (Final node reached at the end of the episode, boolean stating if the max depth allowed has been reached).
+
+        """
+        stop = False
+        max_depth_reached = False
+
+        while not stop and not max_depth_reached and self.clean_sub_executions:
+
+            program_level = self.env.get_program_level_from_index(root_node['program_index'])
+            # tag node as from the final execution trace (for visualization purpose)
+            root_node["selected"] = True
+
+            if root_node['depth'] >= self.max_depth_dict[program_level]:
+                max_depth_reached = True
+
+            else:
+                env_state = root_node["env_state"]
+
+                # record obs, progs and lstm states only if they correspond to the current task at hand
+                self.lstm_states.append((root_node['h_lstm'], root_node['c_lstm']))
+                self.programs_index.append(root_node['program_index'])
+                self.observations.append(root_node['observation'])
+                self.previous_actions.append(root_node['program_from_parent_index'])
+                self.rewards.append(None)
+
+                # Spend some time expanding the tree from your current root node
+                processes = []
+                with multiprocessing.Pool(processes=10) as pool:
+                    for j in range(self.number_of_simulations):
+                        # run a simulation
+                        # print(root_node['depth'])
+                        # print("play episode number: " +str(j))
+                        self.recursive_call = False
+                        callback = pool.apply_async(self._run_simulation_parallel, (root_node, root_node['depth']))
+                        processes.append(callback)
+
+                print(len(processes))
+                for process in processes:
+                    process.wait()
+                    simulation_root, simulation_chain, clean_sub_executions = process.get
+
+                    self.clean_sub_executions &= clean_sub_executions
+
+                    self.root_node["total_action_value"] += simulation_root["total_action_value"]
+                    self.root_node["visit_count"] += simulation_root["visit_count"]
+
+                    self.check_widening(self.root_node)
+
+                    current_node = self.root_node
+                    for node in simulation_chain:
+                        found = False
+                        for child in current_node["childs"]:
+                            if child["program_from_parent_index"] == node["program_from_parent_index"] and child["Beta_Parameters"] == node["Beta_Parameters"]:
+                                child["visit_count"] += node["visit_count"]
+                                child["total_action_value"] += node["total_action_value"]
+                                current_node = child
+                                found = True
+                                break
+                        if not found:
+                            current_node["childs"].append(node)
+                            current_node = node
+                        self.check_widening(current_node)
+
+                # Sample next action
+                mcts_policy, program_to_call_index = self._sample_policy(root_node)
+
+                if self.env.get_program_from_index(root_node["childs"][program_to_call_index]["program_index"]) == self.env.get_program_from_index(self.task_index):
+                    self.global_recursive_call = True
+
+                # Set new root node
+
+                root_node = root_node["childs"][program_to_call_index]
+
+                # Record mcts policy
+                self.mcts_policies.append(mcts_policy)
+
+                # Apply chosen action
+                #TODO CHECK THIS TO MAKE SURE IT'S RETURNING THE PROGRAM NAME
+                if self.env.get_program_from_index(root_node["program_from_parent_index"]) == 'STOP':
+                    stop = True
+                else:
+                    self.env.reset_to_state(root_node["env_state"])
+
+        return root_node, max_depth_reached
 
     def sample_execution_trace(self):
         """
@@ -545,4 +767,3 @@ class ContinuousMCTS:
         return self.observations, self.programs_index, self.previous_actions, self.mcts_policies, \
                self.lstm_states, max_depth_reached, self.root_node, task_reward, self.clean_sub_executions, self.rewards, \
                self.programs_failed_indices, self.programs_failed_initstates
-

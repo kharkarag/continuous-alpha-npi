@@ -1,4 +1,5 @@
 import torch
+from torch.distributions.beta import Beta
 from torch.nn import Linear, LSTMCell, Module, Embedding
 from torch.nn.init import uniform_
 import torch.nn.functional as F
@@ -19,19 +20,37 @@ class CriticNet(Module):
         return x
 
 
-class ActorNet(Module):
+# class ActorNet(Module):
+#     def __init__(self, hidden_size, num_programs):
+#         super(ActorNet, self).__init__()
+#         self.l1 = Linear(hidden_size, hidden_size//2)
+#         self.l2 = Linear(hidden_size//2, num_programs)
+#
+#     def forward(self, hidden_state):
+#         x = F.relu(self.l1(hidden_state))
+#         x = F.softmax(self.l2(x), dim=-1)
+#         return x
+
+class ContinuousActorNet(Module):
     def __init__(self, hidden_size, num_programs):
-        super(ActorNet, self).__init__()
-        self.l1 = Linear(hidden_size, hidden_size//2)
-        self.l2 = Linear(hidden_size//2, num_programs)
+        super(ContinuousActorNet, self).__init__()
+        self.program1 = Linear(hidden_size, hidden_size//2)
+        self.program2 = Linear(hidden_size//2, num_programs)
+
+        self.beta1 = Linear(hidden_size, hidden_size//2)
+        self.beta2 = Linear(hidden_size//2, 2)
 
     def forward(self, hidden_state):
-        x = F.relu(self.l1(hidden_state))
-        x = F.softmax(self.l2(x), dim=-1)
-        return x
+        program = F.relu(self.program1(hidden_state))
+        program = F.softmax(self.program2(program), dim=-1)
+
+        beta = F.relu(self.beta1(hidden_state))
+        beta = F.softplus(self.beta2(beta))
+
+        return program, beta
 
 
-class Policy(Module):
+class ContinuousPolicy(Module):
     """This class represents the NPI policy containing the environment encoder, the key-value and program embedding
     matrices, the NPI core lstm and the value networks for each task.
 
@@ -46,9 +65,9 @@ class Policy(Module):
         learning_rate (float, optional): Defaults to 10^-3.
     """
     def __init__(self, encoder, hidden_size, num_programs, num_non_primary_programs, embedding_dim,
-                 encoding_dim, indices_non_primary_programs, learning_rate=1e-3):
+                 encoding_dim, indices_non_primary_programs, learning_rate=1e-3, temperature=0.1, entropy_lambda=0.1):
 
-        super(Policy, self).__init__()
+        super(ContinuousPolicy, self).__init__()
 
         self._uniform_init = (-0.1, 0.1)
 
@@ -65,7 +84,10 @@ class Policy(Module):
 
         self.lstm = LSTMCell(self.encoding_dim + self.embedding_dim, self._hidden_size)
         self.critic = CriticNet(self._hidden_size)
-        self.actor = ActorNet(self._hidden_size, self.num_programs)
+        self.actor = ContinuousActorNet(self._hidden_size, self.num_programs)
+
+        self.temperature = temperature
+        self.entropy_lambda = entropy_lambda
 
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
@@ -129,11 +151,14 @@ class Policy(Module):
 
         """
         batch_size = len(i_t)
-        s_t = self.encoder(e_t.view(batch_size, -1))
+        s_t = self.encoder(e_t.view(batch_size, -1)).cpu()
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
         p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
 
-        new_h, new_c = self.lstm(torch.cat([s_t, p_t], -1), (h_t, c_t))
+        # new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t, start_dim=1).view(1,-1), p_t], -1), (h_t, c_t))
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t, start_dim=1), p_t], -1), (h_t, c_t))
+
+        # new_h, new_c = self.lstm(torch.cat([s_t, p_t], -1), (h_t, c_t))
 
         actor_out = self.actor(new_h)
         critic_out = self.critic(new_h)
@@ -155,19 +180,54 @@ class Policy(Module):
         h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
 
         policy_labels = torch.squeeze(torch.stack(batch[3]))
+        # print(list(policy_labels.size()))
+
+        policy_label_prob, policy_label_cval = torch.squeeze(policy_labels[:,0,:]), torch.squeeze(policy_labels[:,1,:])
         value_labels = torch.stack(batch[4]).view(-1, 1)
 
         self.optimizer.zero_grad()
         policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
 
-        policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-        value_loss = torch.pow(value_predictions - value_labels, 2).mean()
+        # policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
 
-        total_loss = (policy_loss + value_loss) / 2
+        # policy_pred = torch.t(policy_predictions[1])
+
+        policy_pred_prog, policy_pred_beta = policy_predictions[0], torch.t(policy_predictions[1])
+
+        print(f"{list(policy_pred_beta.size())} | {list(policy_label_cval.size())}")
+
+        beta = Beta(policy_pred_beta[0], policy_pred_beta[1])
+        # policy_action = beta.sample(10)
+        # print(policy_action)
+
+        probs = []
+        for i in range(policy_label_cval.size()[1]):
+            probs.append(beta.log_prob(policy_label_cval[:,i]))
+
+
+        # prob_action = beta.log_prob(policy_label_cval)
+        prob_action = torch.cat(probs)
+
+        # print(list(prob_action.size()))
+        # print(prob_action)
+        # print(list(policy_labels.size()))
+        # print(policy_labels)
+
+        log_mcts = self.temperature * torch.log(policy_label_prob)
+        with torch.no_grad():
+            modified_kl = prob_action - log_mcts
+
+        policy_loss = -modified_kl * (torch.log(modified_kl) + prob_action)
+        entropy_loss = self.entropy_lambda * beta.entropy()
+        
+        policy_network_loss = policy_loss + entropy_loss
+        value_network_loss = torch.pow(value_predictions - value_labels, 2).mean()
+
+        total_loss = (policy_network_loss + value_network_loss) / 2
         total_loss.backward()
         self.optimizer.step()
 
-        return policy_loss, value_loss, total_loss
+        return policy_network_loss, value_network_loss, total_loss
 
     def forward_once(self, e_t, i_t, h, c):
         """Run one NPI inference using predict.

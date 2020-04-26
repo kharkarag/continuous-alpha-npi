@@ -26,6 +26,7 @@ if __name__ == "__main__":
     policy.load_state_dict(torch.load(load_path))
 
     # Prepare mcts params
+    length = 6
     max_depth_dict = {1: 8}
 
     mcts_test_params = {'number_of_simulations': conf.number_of_simulations_for_validation,
@@ -34,7 +35,6 @@ if __name__ == "__main__":
                         'gamma': conf.gamma}
 
     # Start debugging ...
-    length = 6
     env = HanoiEnv(n=length, encoding_dim=conf.encoding_dim)
     hanoi_index = env.programs_library['HANOI']['index']
 

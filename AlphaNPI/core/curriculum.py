@@ -101,10 +101,10 @@ class CurriculumScheduler():
         # Update task average reward
         for reward in rewards:
             # all non-zero rewards are considered to be 1.0 in the curriculum scheduler
-            if reward > 0.0:
-                reward = 1.0
-            else:
-                reward = 0.0
+            # if reward > 0.0:
+            #     reward = 1.0
+            # else:
+            #     reward = 0.0
 
             self.tasks_average_rewards[self.relative_indices[task_index]] = self.moving_average*self.tasks_average_rewards[self.relative_indices[task_index]] + (1-self.moving_average)*reward
 

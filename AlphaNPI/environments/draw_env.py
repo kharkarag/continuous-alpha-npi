@@ -22,12 +22,15 @@ class DrawEnvEncoder(nn.Module):
 
     def __init__(self, observation_dim, encoding_dim):
         super(DrawEnvEncoder, self).__init__()
-        channels = [1, 10, 30]
+        channels = [1, 5, 15, 30, 45]
         self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1)
         self.conv2 = nn.Conv2d(channels[1], channels[2], 3, padding=1)
-        self.conv3 = nn.Conv2d(channels[2], encoding_dim, 3, padding=1)
+        self.conv3 = nn.Conv2d(channels[2], channels[3], 3, padding=1)
+        self.conv4 = nn.Conv2d(channels[3], channels[4], 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.ln1 = nn.Linear(20000, encoding_dim)
+        self.ln1 = nn.Linear(6480, encoding_dim)
+
+        self = self.cuda()
 
         #Before Changes
         # channels = [1, 10, 30]
@@ -39,13 +42,17 @@ class DrawEnvEncoder(nn.Module):
     def forward(self, x):
         #We need to resphape the input because it is being passed in flat because the other programs wouldn't need convolutions
         x = x.view(-1,1,200,200)
+        x = x.cuda()
+        # print(list(x.size()))
         # if x.size()[0]!=32:
         #     print("DRAWENV BATCH SIZE NOT WHAT IT IS EXPECTING")
         #     print(x.size()[0])
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = self.pool(F.relu(self.conv3(x)))
-        x = torch.flatten(x)
+        x = self.pool(F.relu(self.conv4(x)))
+        x = torch.flatten(x, start_dim=1)
+        # print(list(x.size()))
         x = F.relu(self.ln1(x))
         return x
 
@@ -86,18 +93,18 @@ class DrawEnv(Environment):
         self.current_pixel_data = np.array(self.current_canvas)
 
         # self.current_pixel_data = self.current_canvas.load()
-        self.current_pix = np.array([dim/2 + 0.5]*2)
-        self.stride = 1
+        self.current_pos = np.array([dim/2]*2)
+        self.stride = 5
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
 
         if hierarchy:
             self.programs_library = {'STOP': {'level': -1, 'recursive': False, "continuous":False, "crange":None},
                                      'MOVE': {'level': 0, 'recursive': False, "continuous":True, "crange":[0,2*np.pi]},
-                                     'ULINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None}
-                                     # 'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     # 'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     # 'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'ULINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                    #  'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                    #  'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                    #  'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
                                      # 'CIRCLE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
                                      # 'TRIANGLE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
                                      # 'LSHAPE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
@@ -112,9 +119,9 @@ class DrawEnv(Environment):
             self.prog_to_precondition = {'STOP': self._stop_precondition,
                                          'MOVE': self._move_precondition,
                                          'ULINE': self._line_precondition,
-                                         # 'DLINE': self._line_precondition,
-                                         # 'LLINE': self._line_precondition,
-                                         # 'RLINE': self._line_precondition,
+                                        #  'DLINE': self._line_precondition,
+                                        #  'LLINE': self._line_precondition,
+                                        #  'RLINE': self._line_precondition,
                                          # 'CIRCLE': self._circle_precondition,
                                          # 'TRIANGLE': self._shape_precondition,
                                          # 'LSHAPE': self._shape_precondition,
@@ -124,10 +131,10 @@ class DrawEnv(Environment):
             square_vertices = [(100,100), (50,100), (50, 50), (100, 50), (100,100)]
             triangle_vertices = [(100,100), (125,75), (150, 100), (100,100)]
 
-            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-5, 0]),
-                                          # 'DLINE': self._line_postcondition([50, 0]),
-                                          # 'LLINE': self._line_postcondition([0, -50]),
-                                          # 'RLINE': self._line_postcondition([0, 50]),
+            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-50, 0]),
+                                        #   'DLINE': self._line_postcondition([50, 0]),
+                                        #   'LLINE': self._line_postcondition([0, -50]),
+                                        #   'RLINE': self._line_postcondition([0, 50]),
                                           # 'CIRCLE': self._circle_postcondition,
                                           # 'TRIANGLE': self._shape_postcondition(triangle_vertices),
                                           # 'LSHAPE': self._shape_postcondition('LSHAPE'), #TODO
@@ -166,16 +173,16 @@ class DrawEnv(Environment):
 
     def _move(self, action):
         #This finds the target pixel to move to
-        cartesian = cmath.rect(self.stride, action)
-        movement = np.array([cartesian.real, cartesian.imag])
-        target = self.current_pos + movement
-        if target[0]>=0.0 and target[0]<= self.dim and target[1]>=0.0 and target[1]<= self.dim:
-            #This is probably an inefficient way to find the pixels the line moves through
-            x_move =  np.linspace(self.current_pos[0], target[0], num = 10 * self.stride)
-            y_move = np.linspace(self.current_pos[1], target[1], num = 10 * self.stride)
-            for p in range(x_move.shape[0]):
-                self.current_pixel_data[int(x_move[p]), int(y_move[p])] = 0.0
-            self.current_pos = target
+        # cartesian = cmath.rect(self.stride, action)
+        # movement = np.array([cartesian.real, cartesian.imag])
+        # target = self.current_pos + movement
+        # if target[0]>=0.0 and target[0]<= self.dim and target[1]>=0.0 and target[1]<= self.dim:
+        #     #This is probably an inefficient way to find the pixels the line moves through
+        #     x_move =  np.linspace(self.current_pos[0], target[0], num = 10 * self.stride)
+        #     y_move = np.linspace(self.current_pos[1], target[1], num = 10 * self.stride)
+        #     for p in range(x_move.shape[0]):
+        #         self.current_pixel_data[int(x_move[p]), int(y_move[p])] = 0.0
+        #     self.current_pos = target
 
 
 
@@ -185,17 +192,22 @@ class DrawEnv(Environment):
 
         # self.current_pos = target
 
-        # cartesian = cmath.rect(action, self.stride)
-        # movement = np.array([cartesian.real, cartesian.imag])
-        #
-        # target = self.current_pos + self.stride*movement.astype(int)
-        # rr, cc = line(self.current_pos[0], self.current_pos[1], target[0], target[1])
-        # self.current_pixel_data[rr, cc] = 0
-        #
-        # self.current_pos = target
+        cartesian = cmath.rect(self.stride, action)
+        movement = np.array([cartesian.real, cartesian.imag])
+        
+        target = self.bounds(self.current_pos + movement.astype(int))
+
+        rr, cc = line(int(self.current_pos[0]), int(self.current_pos[1]), int(target[0]), int(target[1]))
+        self.current_pixel_data[rr, cc] = 0
+        
+        self.current_pos = target
 
     def _move_precondition(self):
         return True
+
+
+    def bounds(self, coord):
+        return np.minimum(np.maximum(coord, 0), self.dim-1)
 
     def _line_precondition(self):
         return True
@@ -203,27 +215,29 @@ class DrawEnv(Environment):
     def _line_postcondition(self, direction):
         def _line(init_state, state):
 
-            init_canvas, init_position = init_state
-            canvas, position = state
-            drawn_canvas = np.copy(init_canvas)
-            target = init_position + direction
-            # This is probably an inefficient way to find the pixels the line moves through
-            x_move = np.linspace(init_position[0], target[0], num=int(10.0 * np.linalg.norm(direction)))
-            y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(direction)))
-            for p in range(x_move.shape[0]):
-                drawn_canvas[int(x_move[p]), int(y_move[p])] = 0.0
-
-            return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + direction)) , drawn_canvas
-
-            # ######################################
             # init_canvas, init_position = init_state
             # canvas, position = state
-            #
             # drawn_canvas = np.copy(init_canvas)
-            # rr, cc = line(init_position[0], init_position[1], init_position[0] + direction[0], init_position[1] + direction[1])
-            # drawn_canvas[rr, cc] = 0
-            #
-            # return np.equal(drawn_canvas, canvas) and np.equal(position, init_position + direction)
+            # target = init_position + direction
+            # # This is probably an inefficient way to find the pixels the line moves through
+            # x_move = np.linspace(init_position[0], target[0], num=int(10.0 * np.linalg.norm(direction)))
+            # y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(direction)))
+            # for p in range(x_move.shape[0]):
+            #     drawn_canvas[int(x_move[p]), int(y_move[p])] = 0.0
+
+            # return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + direction)) , drawn_canvas
+
+            # ######################################
+            init_canvas, init_position = init_state
+            init_position = init_position.astype(int)
+            canvas, position = state
+            
+            drawn_canvas = np.copy(init_canvas)
+            target = self.bounds(init_position + direction)
+            rr, cc = line(init_position[0], init_position[1], target[0], target[1])
+            drawn_canvas[rr, cc] = 0
+            
+            return np.array_equal(drawn_canvas, canvas) and np.array_equal(position, init_position + direction), drawn_canvas
         
         return _line
 
@@ -238,7 +252,7 @@ class DrawEnv(Environment):
         rr, cc = circle_perimeter(init_canvas[0], init_canvas[1], 25)
         drawn_canvas[rr, cc] = 0
 
-        return np.equal(drawn_canvas, canvas) and np.equal(position, init_position)
+        return np.array_equal(drawn_canvas, canvas) and np.array_equal(position, init_position)
 
     def _shape_precondition(self):
         return True
@@ -252,7 +266,7 @@ class DrawEnv(Environment):
             for i, vertex in enumerate(vertices[1:], start=1):
                 rr, cc = line(vertices[i-1][0], vertices[i-1][1], vertex[0], vertex[1])
                 drawn_canvas[rr, cc] = 0
-            return np.equal(drawn_canvas, canvas) and np.equal(position, init_position)
+            return np.array_equal(drawn_canvas, canvas) and np.array_equal(position, init_position)
 
         return _shape
     
@@ -296,7 +310,7 @@ class DrawEnv(Environment):
         self.current_canvas = self._create_new_canvas()
         self.current_pixel_data = np.array(self.current_canvas)
         # start at center
-        self.current_pos = (self.width // 2 + 0.5, self.height // 2 + 0.5)
+        self.current_pos = np.array([self.width // 2, self.height // 2])
         self.has_been_reset = True
         return self.get_observation()
 
@@ -309,7 +323,7 @@ class DrawEnv(Environment):
 
         """
         assert self.has_been_reset, 'Need to reset the environment before getting states'
-        return np.copy(self.current_pixel_data), self.current_pix
+        return np.copy(self.current_pixel_data), self.current_pos
 
     def get_observation(self):
         """Returns an observation of the current state.
@@ -317,6 +331,13 @@ class DrawEnv(Environment):
         Returns:
             an observation of the current state
         """
+
+        # canvas = np.array(self.current_canvas, dtype=np.float)/255.0
+        # current = np.ones((self.width, self.height))
+        # current[self.current_pos] = 0
+
+        # return np.array(canvas, current)
+
         return np.array(self.current_canvas, dtype=np.float)/255.0
 
 
@@ -341,14 +362,26 @@ class DrawEnv(Environment):
         """
         # self.current_canvas = state[0].copy()
         self.current_pixel_data = state[0].copy()
-        self.current_pix = state[1]
+        self.current_pos = state[1]
 
     def get_state_str(self, state):
         """Print a graphical representation of the environment state"""
         current_canvas = state[0].copy()  # check
-        current_pix = state[1]
-        out = 'canvas: {}, current_pix : {}'.format(str(current_canvas), current_pix)
+        current_pos = state[1]
+        out = 'canvas: {}, current_pos : {}'.format(str(current_canvas), current_pos)
         return out
+
+    def get_state_img(self, state):
+        """Print a graphical representation of the environment state"""
+        current_canvas = state[0].copy()  # check
+        current_pos = state[1].astype(int)
+
+        img = Image.fromarray(current_canvas)
+        rgb_img = img.convert("RGB")
+        img_pixels = rgb_img.load()
+
+        img_pixels[int(current_pos[0]), int(current_pos[1])] = (255,0,0)
+        return rgb_img
 
     def compare_state(self, state1, state2):
         """
@@ -368,6 +401,41 @@ class DrawEnv(Environment):
         return bool
 
 
+    # def get_reward(self):
+    #     """Returns a reward for the current task at hand.
+
+    #     Returns:
+    #         Score based on how close the drawn image is to the target image.
+
+    #     """
+    #     task_init_state = self.tasks_dict[len(self.tasks_list)]
+    #     canvas, location = self.get_state()
+    #     current_task = self.get_program_from_index(self.current_task_index)
+    #     #This should return the canvas I want
+    #     post_program = self.prog_to_postcondition[current_task]
+    #     done, target_canvas = post_program(task_init_state,self.get_state())
+    #     if done:
+    #         score = 1000
+    #         return score
+
+    #     positive = np.logical_and(target_canvas == 0, canvas == 0)
+    #     negative = np.logical_and(target_canvas == 255, canvas == 0)
+    #     score = np.sum(positive) - np.sum(negative)
+
+    #     # score = 0.0
+    #     # width,height= target_canvas.shape
+    #     # #I'll need to redo this if we add a gaussian around the line
+    #     # for h in range(height):
+    #     #     for w in range(width):
+    #     #         if target_canvas[h,w] == 0.0 and  canvas[h,w] == 0.0:
+    #     #             score += 1.0
+    #     #         else:
+    #     #             if target_canvas[h,w] == 255.0 and canvas[h,w] == 0.0:
+    #     #                 score -= 1.0
+
+    #     return score
+
+
     def get_reward(self):
         """Returns a reward for the current task at hand.
 
@@ -381,18 +449,9 @@ class DrawEnv(Environment):
         #This should return the canvas I want
         post_program = self.prog_to_postcondition[current_task]
         done, target_canvas = post_program(task_init_state,self.get_state())
-        if done:
-            score = 1000
-            return score
-        score = 0.0
-        width,height= target_canvas.shape
-        #I'll need to redo this if we add a gaussian around the line
-        for h in range(height):
-            for w in range(width):
-                if target_canvas[h,w] == 0.0 and  canvas[h,w] == 0.0:
-                    score += 1.0
-                else:
-                    if target_canvas[h,w] == 255.0 and canvas[h,w] == 0.0:
-                        score -= 1.0
+
+        intersection = np.logical_and(target_canvas == 0, canvas == 0)
+        union = np.logical_or(target_canvas == 0, canvas == 0)
+        score = np.sum(intersection)/np.sum(union)
 
         return score

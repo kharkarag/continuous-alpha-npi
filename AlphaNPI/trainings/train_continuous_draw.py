@@ -1,9 +1,10 @@
 from environments.draw_env import DrawEnv, DrawEnvEncoder
 from core.curriculum import CurriculumScheduler
-from core.policy import Policy
+from core.continuous_policy import ContinuousPolicy as Policy
 import core.config as conf
 from core.trainer import Trainer
-from core.prioritized_replay_buffer import PrioritizedReplayBuffer
+# from core.prioritized_replay_buffer import PrioritizedReplayBuffer
+from core.continuous_replay_buffer import ContinuousReplayBuffer
 import argparse
 import numpy as np
 import torch
@@ -23,12 +24,12 @@ parser.add_argument('--num-cpus', help='number of cpus to use', default=8, type=
 args = parser.parse_args()
 
 # Get arguments
-seed = 25
-tensorboard = False
-verbose = True
-save_model = False
-save_results = False
-num_cpus = 1
+seed = args.seed
+tensorboard = args.tensorboard
+verbose = args.verbose
+save_model = args.save_model
+save_results = args.save_results
+num_cpus = args.num_cpus
 
 # Set number of cpus used
 torch.set_num_threads(num_cpus)
@@ -37,11 +38,11 @@ torch.set_num_threads(num_cpus)
 ts = time.localtime(time.time())
 date_time = '{}_{}_{}-{}_{}_{}'.format(ts[0], ts[1], ts[2], ts[3], ts[4], ts[5])
 # Path to save policy
-model_save_path = '../models/list_npi_{}-{}.pth'.format(date_time, seed)
+model_save_path = '../models/draw_npi_{}-{}.pth'.format(date_time, seed)
 # Path to save results
-results_save_path = '../results/list_npi_{}-{}.txt'.format(date_time, seed)
+results_save_path = '../results/draw_npi_{}-{}.txt'.format(date_time, seed)
 # Path to tensorboard
-tensorboard_path = 'runs/list_npi_{}-{}'.format(date_time, seed)
+tensorboard_path = 'runs/draw_npi_{}-{}'.format(date_time, seed)
 
 # Instantiate tensorboard writer
 if tensorboard:
@@ -71,7 +72,7 @@ policy = Policy(encoder, conf.hidden_size, num_programs, num_non_primary_program
 
 # Load replay buffer
 idx_tasks = [prog['index'] for key, prog in env_tmp.programs_library.items() if prog['level'] > 0]
-buffer = PrioritizedReplayBuffer(conf.buffer_max_length, idx_tasks, p1=conf.proba_replay_buffer)
+buffer = ContinuousReplayBuffer(conf.buffer_max_length, idx_tasks, p1=conf.proba_replay_buffer)
 
 # Load curriculum sequencer
 curriculum_scheduler = CurriculumScheduler(conf.reward_threshold, num_non_primary_programs, programs_library,
@@ -79,7 +80,7 @@ curriculum_scheduler = CurriculumScheduler(conf.reward_threshold, num_non_primar
 
 # Prepare mcts params
 length = 5
-max_depth_dict = {1: 8, 2: 10, 3: 10}
+max_depth_dict = {1: 11, 2: 10, 3: 10}
 mcts_train_params = {'number_of_simulations': conf.number_of_simulations, 'max_depth_dict': max_depth_dict,
                      'temperature': conf.temperature, 'c_puct': conf.c_puct, 'exploit': False,
                      'level_closeness_coeff': conf.level_closeness_coeff, 'gamma': conf.gamma,
@@ -125,20 +126,20 @@ for iteration in range(conf.num_iterations):
         curriculum_scheduler.update_statistics(idx, v_rewards)
 
     # display training progress in tensorboard
-    # if tensorboard:
-    #     for idx in curriculum_scheduler.get_tasks_of_maximum_level():
-    #         v_task_name = env.get_program_from_index(idx)
-    #         # record on tensorboard
-    #         writer.add_scalar('validation/' + v_task_name, curriculum_scheduler.get_statistic(idx), iteration)
-    #
-    # # write training progress in txt file
-    # if save_results:
-    #     str = 'Iteration: {}'.format(iteration)
-    #     for idx in curriculum_scheduler.indices_non_primary_programs:
-    #         task_name = env.get_program_from_index(idx)
-    #         str += ', %s:%.3f' % (task_name, curriculum_scheduler.get_statistic(idx))
-    #     str += '\n'
-    #     results_file.write(str)
+    if tensorboard:
+        for idx in curriculum_scheduler.get_tasks_of_maximum_level():
+            v_task_name = env.get_program_from_index(idx)
+            # record on tensorboard
+            writer.add_scalar('validation/' + v_task_name, curriculum_scheduler.get_statistic(idx), iteration)
+    
+    # write training progress in txt file
+    if save_results:
+        out = 'Iteration: {}'.format(iteration)
+        for idx in curriculum_scheduler.indices_non_primary_programs:
+            task_name = env.get_program_from_index(idx)
+            out += ', %s:%.3f' % (task_name, curriculum_scheduler.get_statistic(idx))
+        out += '\n'
+        results_file.write(out)
 
     # print new training statistics
     if verbose:
