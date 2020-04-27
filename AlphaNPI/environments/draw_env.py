@@ -22,13 +22,12 @@ class DrawEnvEncoder(nn.Module):
 
     def __init__(self, observation_dim, encoding_dim):
         super(DrawEnvEncoder, self).__init__()
-        channels = [1, 10, 30]
+        channels = [1, 16, 32, 64]
         self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1)
         self.conv2 = nn.Conv2d(channels[1], channels[2], 3, padding=1)
-        self.conv3 = nn.Conv2d(channels[2], encoding_dim, 3, padding=1)
+        # self.conv3 = nn.Conv2d(channels[2], channels[3], 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.ln1 = nn.Linear(20000, encoding_dim)
-
+        self.ln1 = nn.Linear(80000, encoding_dim)
         #Before Changes
         # channels = [1, 10, 30]
         # self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1)
@@ -38,15 +37,19 @@ class DrawEnvEncoder(nn.Module):
 
     def forward(self, x):
         #We need to resphape the input because it is being passed in flat because the other programs wouldn't need convolutions
+        # print(x.size())
         x = x.view(-1,1,200,200)
-        # if x.size()[0]!=32:
-        #     print("DRAWENV BATCH SIZE NOT WHAT IT IS EXPECTING")
-        #     print(x.size()[0])
+        # print(x.size())
         x = self.pool(F.relu(self.conv1(x)))
+        # print(x.size())
         x = self.pool(F.relu(self.conv2(x)))
-        x = self.pool(F.relu(self.conv3(x)))
-        x = torch.flatten(x)
+        # print(x.size())
+        # x = self.pool(F.relu(self.conv3(x)))
+        # print(x.size())
+        x = torch.flatten(x,start_dim=1)
+        # print(x.size())
         x = F.relu(self.ln1(x))
+        # print(x)
         return x
 
         # #Before Changes
@@ -124,7 +127,7 @@ class DrawEnv(Environment):
             square_vertices = [(100,100), (50,100), (50, 50), (100, 50), (100,100)]
             triangle_vertices = [(100,100), (125,75), (150, 100), (100,100)]
 
-            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-5, 0]),
+            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-15, 0]),
                                           # 'DLINE': self._line_postcondition([50, 0]),
                                           # 'LLINE': self._line_postcondition([0, -50]),
                                           # 'RLINE': self._line_postcondition([0, 50]),
@@ -205,15 +208,20 @@ class DrawEnv(Environment):
 
             init_canvas, init_position = init_state
             canvas, position = state
+            position = np.array(position)
+            init_position = np.array(init_position)
+            ar_direction = np.array(direction)
             drawn_canvas = np.copy(init_canvas)
-            target = np.array(init_position) + np.array(direction)
+
+
+            target = init_position + ar_direction
             # This is probably an inefficient way to find the pixels the line moves through
-            x_move = np.linspace(init_position[0], target[0], num=int(10.0 * np.linalg.norm(direction)))
-            y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(direction)))
+            x_move = np.linspace(init_position[0], target[0], num=int(10.0 * np.linalg.norm(ar_direction)))
+            y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(ar_direction)))
             for p in range(x_move.shape[0]):
                 drawn_canvas[int(x_move[p]), int(y_move[p])] = 0.0
 
-            return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + direction)) , drawn_canvas
+            return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + ar_direction)) , drawn_canvas
 
             # ######################################
             # init_canvas, init_position = init_state
@@ -368,12 +376,12 @@ class DrawEnv(Environment):
         return bool
 
 
+
+
     def get_reward(self):
         """Returns a reward for the current task at hand.
-
         Returns:
             Score based on how close the drawn image is to the target image.
-
         """
         task_init_state = self.tasks_dict[len(self.tasks_list)]
         canvas, location = self.get_state()
@@ -381,26 +389,49 @@ class DrawEnv(Environment):
         #This should return the canvas I want
         post_program = self.prog_to_postcondition[current_task]
         done, target_canvas = post_program(task_init_state,self.get_state())
-        # print(str(task_init_state[1][0])+ '   ' +str(task_init_state[1][1])+ '   ' +str( location[0])+ '   ' +str(location[1])+ '   ' )
-        # if task_init_state[1][0]!=  location[0] or task_init_state[1][1]!=  location[1]:
-        #     print("location_init: " + str(task_init_state[1]) + '   current: '  + str(location))
-        if done:
-            score = 1000
-            return score
-        score = 0.0
-        width,height= target_canvas.shape
-        #I'll need to redo this if we add a gaussian around the line
-        for h in range(height):
-            for w in range(width):
-                # print(str(target_canvas[h,w]) + '  ' + str(canvas[h,w]) )
 
-                # if target_canvas[h,w] == 0:
-                #     print(str(h) + '  ' + str(w))
+        intersection = np.logical_and(target_canvas == 0, canvas == 0)
+        union = np.logical_or(target_canvas == 0, canvas == 0)
+        score = np.sum(intersection)/np.sum(union)
 
-                if target_canvas[h,w] == 0 and  canvas[h,w] == 0:
-                    score += 2.0
-                else:
-                    if target_canvas[h,w] == 255 and canvas[h,w] == 0:
-                        score -= 1.0
-        # print(score)
         return score
+
+
+
+
+    # def get_reward(self):
+    #     """Returns a reward for the current task at hand.
+    #
+    #     Returns:
+    #         Score based on how close the drawn image is to the target image.
+    #
+    #     """
+        # task_init_state = self.tasks_dict[len(self.tasks_list)]
+        # canvas, location = self.get_state()
+        # current_task = self.get_program_from_index(self.current_task_index)
+        # #This should return the canvas I want
+        # post_program = self.prog_to_postcondition[current_task]
+        # done, target_canvas = post_program(task_init_state,self.get_state())
+        # # print(str(task_init_state[1][0])+ '   ' +str(task_init_state[1][1])+ '   ' +str( location[0])+ '   ' +str(location[1])+ '   ' )
+        # # if task_init_state[1][0]!=  location[0] or task_init_state[1][1]!=  location[1]:
+        # #     print("location_init: " + str(task_init_state[1]) + '   current: '  + str(location))
+        # if done:
+        #     score = 1000
+        #     return score
+        # score = 0.0
+        # width,height= target_canvas.shape
+        # #I'll need to redo this if we add a gaussian around the line
+        # for h in range(height):
+        #     for w in range(width):
+        #         # print(str(target_canvas[h,w]) + '  ' + str(canvas[h,w]) )
+        #
+        #         # if target_canvas[h,w] == 0:
+        #         #     print(str(h) + '  ' + str(w))
+        #
+        #         if target_canvas[h,w] == 0 and  canvas[h,w] == 0:
+        #             score += 2.0
+        #         else:
+        #             if target_canvas[h,w] == 255 and canvas[h,w] == 0:
+        #                 score -= 1.0
+        # # print(score)
+        # return score

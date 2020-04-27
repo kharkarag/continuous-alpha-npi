@@ -1,14 +1,14 @@
 # Contains NPI hyperparameters
 
 # Environment agnostic space dimensions
-encoding_dim = 32                           # dimension D of s_t
+encoding_dim = 128                           # dimension D of s_t
 program_embedding_dim = 256                 # size P of program embedding vector
 
 # LSTM hyper-param
 hidden_size = 128                           # size of hidden state h_t
 
 # Optimizer hyper-param
-learning_rate = 1e-4                        # learning rate for the policy optimizer
+learning_rate = 1e-3                        # learning rate for the policy optimizer
 
 # Curriculum hyper-params
 reward_threshold = 0.97                    # reward threshold to increase the tasks levels in curriculum strategy
@@ -21,8 +21,8 @@ level_closeness_coeff = 3.0                 # importance given to higher level p
 
 # Training hyper-params
 num_iterations = 50                        # total number of iterations, one iteration corresponds to one task
-num_episodes_per_task = 9                  # number of episodes played for each new task attempted
-batch_size = 8                            # training batch size
+num_episodes_per_task = 10                  # number of episodes played for each new task attempted
+batch_size = 8                           # training batch size
 # batch_size = 256                            # training batch size
 buffer_max_length = 2000                    # replay buffer max length
 num_updates_per_episode = 2                 # number of gradient descents for every episode played

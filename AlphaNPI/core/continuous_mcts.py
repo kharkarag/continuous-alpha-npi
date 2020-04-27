@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from scipy import stats
 
+
 class ContinuousMCTS:
     """This class is used to perform a search over the state space for different paths by building
     a tree of visited states. Then this tree is used to get an estimation distribution of
@@ -32,7 +33,7 @@ class ContinuousMCTS:
     """
 
     def __init__(self, policy, env, task_index, level_closeness_coeff=1.0,
-                 c_puct=1.0, number_of_simulations=100, max_depth_dict={1: 5, 2: 50, 3: 150},
+                 c_puct=1.0, number_of_simulations=100, max_depth_dict={1: 20, 2: 20, 3: 20},
                  temperature=1.0, use_dirichlet_noise=False,
                  dir_epsilon=0.25, dir_noise=0.03, exploit=False, gamma=0.97, save_sub_trees=False,
                  recursion_depth=0, max_recursion_depth=500, qvalue_temperature=1.0, recursive_penalty=0.9,cpw = 1, kappa = 0.5):
@@ -59,7 +60,7 @@ class ContinuousMCTS:
         self.qvalue_temperature = qvalue_temperature
         self.cpw = cpw
         self.kappa = kappa
-
+        self.max_wide = 40
 
         # record if all sub-programs executed correctly (useful only for programs of level > 1)
         self.clean_sub_executions = True
@@ -84,12 +85,11 @@ class ContinuousMCTS:
             if self.env.programs_library[pname]['continuous'] == True:
                 crange  = self.env.programs_library[pname]['crange']
                 Dist_val = np.random.beta(betaD[0],betaD[1])
+                # print(Dist_val)
                 new_cval = crange[0] + crange[1] * Dist_val
-                # print(new_cval)
+
                 c_actions[prog_index] = {"cval": new_cval}
         return c_actions
-
-
 
 
 
@@ -120,7 +120,9 @@ class ContinuousMCTS:
                             child_prior = n["prior"]
                     crange = self.env.programs_library[pname]['crange']
                     Dist_val = np.random.beta(Beta_Parameters[0], Beta_Parameters[1])
+                    # print(Dist_val)
                     new_cval = crange[0] + crange[1] * Dist_val
+
                     #Need to do a search to get the sum of the priors of the other programs of same type and mult by dist
 
                     new_child = {
@@ -142,7 +144,7 @@ class ContinuousMCTS:
                         "Beta_Parameters":Beta_Parameters,
                         "Parent_program_name":self.env.get_program_from_index(prog_index)
                     }
-                    node["childs"].append(new_child)
+                    node["childs"].insert(0,new_child)
 
 
 
@@ -169,10 +171,9 @@ class ContinuousMCTS:
 
         with torch.no_grad():
             mask = self.env.get_mask_over_actions(program_index)
-            actorOut, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
-            priors = actorOut[0]
-            betaD = actorOut[1]
-            betaD = torch.flatten(betaD)
+            beta_out, priors, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
+            # print(priors)
+            betaD = torch.flatten(beta_out)
             # print(str(betaD[0])+  '  ' + str(betaD[1]) + '  '  + str(np.random.beta(betaD[0],betaD[1])))
             # mask actions
             priors = priors * torch.FloatTensor(mask)
@@ -191,6 +192,7 @@ class ContinuousMCTS:
             cval = None
             if prog_index in c_children:
                 cval = c_children[prog_index]["cval"]
+                # print(cval)
             new_child = {
                 "parent": node,
                 "childs": [],
@@ -240,10 +242,11 @@ class ContinuousMCTS:
 
         """
 
-        best_child = None
         best_val = -np.inf
+        best_child = None
         # Iterate all the children to fill up the node dict and estimate Q val.
         # Then track the best child found according to the Q value estimation
+        # print(len(node["childs"]))
         for child in node["childs"]:
             if child["prior"] > 0.0:
                 q_val_action = self._compute_q_value(child)
@@ -269,7 +272,7 @@ class ContinuousMCTS:
                     best_child = child
 
         if best_child == None:
-            print("best child is none")
+            print("None Child")
 
         return best_child
 
@@ -294,13 +297,12 @@ class ContinuousMCTS:
 
         if self.exploit:
             mcts_policy = mcts_policy / mcts_policy.sum()
-            return mcts_policy / mcts_policy.sum(), int(torch.argmax(mcts_policy))
+            return mcts_policy, int(torch.argmax(mcts_policy))
 
         else:
             mcts_policy = torch.pow(mcts_policy, self.temperature)
             mcts_policy = mcts_policy / mcts_policy.sum()
             return mcts_policy, int(torch.multinomial(mcts_policy, 1)[0, 0])
-
 
 
 
@@ -419,7 +421,7 @@ class ContinuousMCTS:
                 for j in range(self.number_of_simulations):
                     # run a simulation
                     # print(root_node['depth'])
-                    print("play episode number: " +str(j))
+                    # print("play episode number: " +str(j))
                     self.recursive_call = False
                     simulation_max_depth_reached, has_expanded_node, node, value = self._run_simulation(root_node)
 
@@ -447,7 +449,6 @@ class ContinuousMCTS:
                     while node["parent"] is not None:
                         node["visit_count"] += 1
                         node["total_action_value"].append(value)
-                        #TODO DOUBLE CHECK IT'S UPDATING BY REFERENCE
                         self.check_widening(node)
                         node = node["parent"]
                     # Root node is not included in the while loop
@@ -458,20 +459,28 @@ class ContinuousMCTS:
                     self.env.reset_to_state(env_state)
 
                 # Sample next action
+                # print(type(root_node))
+                # print(type(self._sample_policy(root_node)))
                 mcts_policy, program_to_call_index = self._sample_policy(root_node)
-
+                num_continuous = len(root_node["childs"])-self.env.get_num_programs()+1
+                pname = self.env.get_program_from_index(root_node["childs"][0]["program_from_parent_index"])
+                crange = self.env.programs_library[pname]['crange']
+                cont_vals =torch.zeros(1,num_continuous)
+                for i in range(num_continuous):
+                    cont_vals[0,i]=(root_node["childs"][i]["cval"]-crange[0])/crange[1]
                 if self.env.get_program_from_index(root_node["childs"][program_to_call_index]["program_index"]) == self.env.get_program_from_index(self.task_index):
                     self.global_recursive_call = True
+
+
 
                 # Set new root node
 
                 root_node = root_node["childs"][program_to_call_index]
-
+                # print(str(root_node["Parent_program_name"]) + "    " +str(root_node["cval"]) )
                 # Record mcts policy
                 self.mcts_policies.append(mcts_policy)
-
+                self.cvals.append(cont_vals)
                 # Apply chosen action
-                #TODO CHECK THIS TO MAKE SURE IT'S RETURNING THE PROGRAM NAME
                 if self.env.get_program_from_index(root_node["program_from_parent_index"]) == 'STOP':
                     stop = True
                 else:
@@ -518,6 +527,7 @@ class ContinuousMCTS:
             self.mcts_policies = []
             self.lstm_states = []
             self.rewards = []
+            self.cvals = []
             self.programs_failed_indices = []
             self.programs_failed_initstates = []
 
@@ -545,5 +555,5 @@ class ContinuousMCTS:
 
         return self.observations, self.programs_index, self.previous_actions, self.mcts_policies, \
                self.lstm_states, max_depth_reached, self.root_node, task_reward, self.clean_sub_executions, self.rewards, \
-               self.programs_failed_indices, self.programs_failed_initstates
+               self.programs_failed_indices, self.programs_failed_initstates, self.cvals
 

@@ -1,5 +1,6 @@
 from core.continuous_mcts import ContinuousMCTS
 import torch
+import numpy as np
 
 class Trainer():
     """
@@ -48,6 +49,7 @@ class Trainer():
             validation_rewards.append(task_reward)
             traces_lengths.append(trace_length)
         print(validation_rewards)
+        print("average reward: " + str(np.average(np.array(validation_rewards))))
         return validation_rewards, traces_lengths, progs_failed_indices
 
     def play_iteration(self, task_index, verbose=False):
@@ -72,12 +74,12 @@ class Trainer():
             res = mcts.sample_execution_trace()
             observations, prog_indices, previous_actions_indices, policy_labels, lstm_states, _, _, \
                 task_reward, clean_sub_execution, rewards, programs_failed_indices, \
-                programs_failed_initstates = res
+                programs_failed_initstates, cvals = res
 
             # record trace and store it in buffer only if no problem in sub-programs execution
             if clean_sub_execution:
                 # Generates trace
-                trace = list(zip(observations, prog_indices, lstm_states, policy_labels, rewards))
+                trace = list(zip(observations, prog_indices, lstm_states, policy_labels, rewards,cvals))
                 # Append trace to buffer
                 self.buffer.append_trace(trace)
             else:
@@ -90,6 +92,8 @@ class Trainer():
 
             # Train policy on batch
             # temp =  self.buffer.get_memory_length()
+            # print("buffer length: " + str(self.buffer.get_memory_length()))
+            # print(self.batch_size)
             if self.buffer.get_memory_length() > self.batch_size:
                 for _ in range(self.num_updates_per_episode):
                     batch = self.buffer.sample_batch(self.batch_size)
