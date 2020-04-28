@@ -24,10 +24,10 @@ args = parser.parse_args()
 
 # Get arguments
 seed = 25
-tensorboard = False
+tensorboard = True
 verbose = True
-save_model = False
-save_results = False
+save_model = True
+save_results = True
 num_cpus = 4
 
 # Set number of cpus used
@@ -37,11 +37,11 @@ torch.set_num_threads(num_cpus)
 ts = time.localtime(time.time())
 date_time = '{}_{}_{}-{}_{}_{}'.format(ts[0], ts[1], ts[2], ts[3], ts[4], ts[5])
 # Path to save policy
-model_save_path = '../models/list_npi_{}-{}.pth'.format(date_time, seed)
+model_save_path = '../models/draw_npi_{}-{}.pth'.format(date_time, seed)
 # Path to save results
-results_save_path = '../results/list_npi_{}-{}.txt'.format(date_time, seed)
+results_save_path = '../results/draw_npi_{}-{}.txt'.format(date_time, seed)
 # Path to tensorboard
-tensorboard_path = 'runs/list_npi_{}-{}'.format(date_time, seed)
+tensorboard_path = 'runs/draw_npi_{}-{}'.format(date_time, seed)
 
 # Instantiate tensorboard writer
 if tensorboard:

@@ -5,6 +5,7 @@ import math
 import cmath
 from PIL import Image
 from skimage.draw import line, circle_perimeter
+from scipy.ndimage import gaussian_filter
 
 import numpy as np
 import torch
@@ -89,7 +90,7 @@ class DrawEnv(Environment):
         # self.current_pixel_data = np.array(self.current_canvas)
 
         # self.current_pixel_data = self.current_canvas.load()
-        self.current_pix = np.array([dim/2 + 0.5]*2)
+        self.current_pix = np.array([dim//2]*2)
         self.stride = 1
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
@@ -302,10 +303,11 @@ class DrawEnv(Environment):
         """
         # start with an empty white canvas
         self.current_canvas = np.array(self._create_new_canvas())
+
+        self.current_canvas[self.current_pix.astype(int)] = 0
         # self.current_pixel_data = np.array(self.current_canvas)
         # start at center
-        self.current_pix = np.array([self.width // 2 + 0.5, self.height // 2 + 0.5])
-        self.current_canvas[int(self.current_pix[0]),int(self.current_pix[1])] = 0.0
+        self.current_pix = np.array([self.width // 2, self.height // 2])
         self.has_been_reset = True
         return self.get_observation()
 
@@ -391,8 +393,12 @@ class DrawEnv(Environment):
         post_program = self.prog_to_postcondition[current_task]
         done, target_canvas = post_program(task_init_state,self.get_state())
 
+        gaussian_canvas = gaussian_filter(target_canvas, sigma=3)
+
         intersection = np.logical_and(target_canvas == 0, canvas == 0)
-        # print(np.sum(intersection))
+
+        # intersection = np.multiply(1-canvas, 1-gaussian_canvas)
+
         union = np.logical_or(target_canvas == 0, canvas == 0)
         # print(np.sum(union))
         # print()
