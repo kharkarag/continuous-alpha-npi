@@ -173,6 +173,7 @@ class ContinuousMCTS:
             mask = self.env.get_mask_over_actions(program_index)
             beta_out, priors, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
             # print(priors)
+            # print(value)
             betaD = torch.flatten(beta_out)
             # print(str(betaD[0])+  '  ' + str(betaD[1]) + '  '  + str(np.random.beta(betaD[0],betaD[1])))
             # mask actions

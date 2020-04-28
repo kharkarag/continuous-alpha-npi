@@ -204,30 +204,36 @@ class Policy(Module):
             betaL = betaL.view(1,-1)
             beta_probs.append(betaL)
 
-
         self.optimizer.zero_grad()
-
-
 
         beta_prediction, policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
 
         # print(torch.mean(beta_prediction,0))
 
+        total_betas  = 0
         betaLoss = 0.0
-        total_betas = 0
         for i in range(batch_size):
             dist = Beta(beta_prediction[i,0],beta_prediction[i,1])
-
-            pdf_t = torch.zeros(1,beta_probs[i].size()[1])
-            for j in range(beta_probs[i].size()[1]):
-                # print(str(i) + "   " + str(j) + "   "  + str(beta_labels[i][0,j]) +"    " +str(dist.log_prob(beta_labels[i][0,j])) + "   " +str(beta_prediction[i,0]) + "   " +str(beta_prediction[i,1]) )
-                pdf_t[0, j] = dist.log_prob(beta_labels[i][0,j])
-                total_betas +=1
-            betaLoss += (pdf_t - torch.log(beta_probs[i])).sum() - self.entropy_lambda * dist.entropy()
+            pdf_t = dist.log_prob(beta_labels[i])
+            total_betas += pdf_t.size()[1]
+            betaLoss += (pdf_t -torch.log(beta_probs[i])).sum() - self.entropy_lambda * dist.entropy()
 
 
+        betaLoss /= float(total_betas)
+            # print(self.entropy_lambda * dist.entropy())
+        # betaLoss = 0.0
+        # total_betas = 0
+        # for i in range(batch_size):
+        #     dist = Beta(beta_prediction[i,0],beta_prediction[i,1])
+        #
+        #     pdf_t = torch.zeros(1,beta_probs[i].size()[1])
+        #     for j in range(beta_probs[i].size()[1]):
+        #         # print(str(i) + "   " + str(j) + "   "  + str(beta_labels[i][0,j]) +"    " +str(dist.log_prob(beta_labels[i][0,j])) + "   " +str(beta_prediction[i,0]) + "   " +str(beta_prediction[i,1]) )
+        #         pdf_t[0, j] = dist.log_prob(beta_labels[i][0,j])
+        #         total_betas +=1
+        #     betaLoss += (pdf_t - torch.log(beta_probs[i])).sum() - self.entropy_lambda * dist.entropy()
 
-        betaLoss =  betaLoss / float(total_betas)
+        # betaLoss =  betaLoss / float(total_betas)
 
         policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
 
@@ -236,7 +242,7 @@ class Policy(Module):
 
 
         total_loss = (policy_loss + value_loss + betaLoss)
-        # print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
+        print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
         total_loss.backward()
         self.optimizer.step()
 
