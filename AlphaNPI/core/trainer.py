@@ -45,7 +45,6 @@ class Trainer():
             # Sample an execution trace with mcts using policy as a prior
             trace = mcts.sample_execution_trace()
             task_reward, trace_length, progs_failed_indices = trace[7], len(trace[3]), trace[10]
-
             validation_rewards.append(task_reward)
             traces_lengths.append(trace_length)
         print(validation_rewards)

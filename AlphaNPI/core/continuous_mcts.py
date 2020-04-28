@@ -4,7 +4,7 @@
 import numpy as np
 import torch
 from scipy import stats
-
+from torch.distributions.beta import Beta
 
 class ContinuousMCTS:
     """This class is used to perform a search over the state space for different paths by building
@@ -84,9 +84,12 @@ class ContinuousMCTS:
             pname = self.env.get_program_from_index(prog_index)
             if self.env.programs_library[pname]['continuous'] == True:
                 crange  = self.env.programs_library[pname]['crange']
-                Dist_val = np.random.beta(betaD[0],betaD[1])
-                # print(Dist_val)
-                new_cval = crange[0] + crange[1] * Dist_val
+                dist = Beta(betaD[0], betaD[1])
+                new_cval = crange[0] + crange[1] * dist.sample()
+
+                # Dist_val = np.random.beta(betaD[0],betaD[1])
+                # # print(Dist_val)
+                # new_cval = crange[0] + crange[1] * Dist_val
 
                 c_actions[prog_index] = {"cval": new_cval}
         return c_actions
@@ -119,9 +122,13 @@ class ContinuousMCTS:
                         if self.env.get_program_from_index(n["program_from_parent_index"]) == pname:
                             child_prior = n["prior"]
                     crange = self.env.programs_library[pname]['crange']
-                    Dist_val = np.random.beta(Beta_Parameters[0], Beta_Parameters[1])
-                    # print(Dist_val)
-                    new_cval = crange[0] + crange[1] * Dist_val
+
+                    dist = Beta(Beta_Parameters[0], Beta_Parameters[1])
+                    new_cval = crange[0] + crange[1] * dist.sample()
+                    # print(new_cval)
+                    # Dist_val = np.random.beta(Beta_Parameters[0], Beta_Parameters[1])
+                    # # print(Dist_val)
+                    # new_cval = crange[0] + crange[1] * Dist_val
 
                     #Need to do a search to get the sum of the priors of the other programs of same type and mult by dist
 
@@ -191,6 +198,7 @@ class ContinuousMCTS:
             # program_name = self.env.get_program_from_index(prog_index)
             #May want to change this.  It relies on it being a new node so there will only be one continuous value as no widening will have happened
             cval = None
+
             if prog_index in c_children:
                 cval = c_children[prog_index]["cval"]
                 # print(cval)
@@ -287,12 +295,14 @@ class ContinuousMCTS:
         Returns:
           Tuple containing the sampled action and the probability distribution build normalizing visits_policy.
         """
+        mask = self.env.get_mask_over_actions( root_node["program_index"])
+        pad = mask.shape[0] -len(np.nonzero(mask)[0])
         visits_policy = []
         for i, child in enumerate(root_node["childs"]):
             if child["prior"] > 0.0:
                 visits_policy.append([i, child["visit_count"]])
 
-        mcts_policy = torch.zeros(1, len(root_node["childs"]))
+        mcts_policy = torch.zeros(1, len(root_node["childs"])+pad)
         for i, visit in visits_policy:
             mcts_policy[0, i] = visit
 
@@ -429,18 +439,20 @@ class ContinuousMCTS:
                     # get reward
                     if not simulation_max_depth_reached and not has_expanded_node:
                         # if node corresponds to end of an episode, backprogagate real reward
-                        reward = self.env.get_reward() - root_node['depth']/100.0
+                        reward = self.env.get_reward() - root_node['depth']/1000.0
+                        # print("reward: " + str(reward))
                         if reward > 0:
                             value = self.env.get_reward() * (self.gamma ** node['depth'])
+                            # print("value: " + str(value))
                             if self.recursive_task and not self.recursive_call:
                                 # if recursive task but do not called itself, add penalization
                                 value -= self.recursive_penalty
                         else:
-                            value = -1.0
+                            value = 0.0
 
                     elif simulation_max_depth_reached:
                         # if episode stops because the max depth allowed was reached, then reward = -1
-                        value = -1.0
+                        value = 0.0
 
                     value = float(value)
 
@@ -463,12 +475,12 @@ class ContinuousMCTS:
                 # print(type(root_node))
                 # print(type(self._sample_policy(root_node)))
                 mcts_policy, program_to_call_index = self._sample_policy(root_node)
-                num_continuous = len(root_node["childs"])-self.env.get_num_programs()+1
+                num_continuous = len(root_node["childs"])-self.env.get_num_programs()+2
                 pname = self.env.get_program_from_index(root_node["childs"][0]["program_from_parent_index"])
                 crange = self.env.programs_library[pname]['crange']
                 cont_vals =torch.zeros(1,num_continuous)
                 for i in range(num_continuous):
-                    cont_vals[0,i]=(root_node["childs"][i]["cval"]-crange[0])/crange[1]
+                    cont_vals[0, i] = (root_node["childs"][i]["cval"]-crange[0])/crange[1]
                 if self.env.get_program_from_index(root_node["childs"][program_to_call_index]["program_index"]) == self.env.get_program_from_index(self.task_index):
                     self.global_recursive_call = True
 

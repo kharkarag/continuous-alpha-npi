@@ -304,7 +304,8 @@ class DrawEnv(Environment):
         self.current_canvas = np.array(self._create_new_canvas())
         # self.current_pixel_data = np.array(self.current_canvas)
         # start at center
-        self.current_pix = (self.width // 2 + 0.5, self.height // 2 + 0.5)
+        self.current_pix = np.array([self.width // 2 + 0.5, self.height // 2 + 0.5])
+        self.current_canvas[int(self.current_pix[0]),int(self.current_pix[1])] = 0.0
         self.has_been_reset = True
         return self.get_observation()
 
@@ -391,47 +392,10 @@ class DrawEnv(Environment):
         done, target_canvas = post_program(task_init_state,self.get_state())
 
         intersection = np.logical_and(target_canvas == 0, canvas == 0)
+        # print(np.sum(intersection))
         union = np.logical_or(target_canvas == 0, canvas == 0)
+        # print(np.sum(union))
+        # print()
         score = np.sum(intersection)/np.sum(union)
 
         return score
-
-
-
-
-    # def get_reward(self):
-    #     """Returns a reward for the current task at hand.
-    #
-    #     Returns:
-    #         Score based on how close the drawn image is to the target image.
-    #
-    #     """
-        # task_init_state = self.tasks_dict[len(self.tasks_list)]
-        # canvas, location = self.get_state()
-        # current_task = self.get_program_from_index(self.current_task_index)
-        # #This should return the canvas I want
-        # post_program = self.prog_to_postcondition[current_task]
-        # done, target_canvas = post_program(task_init_state,self.get_state())
-        # # print(str(task_init_state[1][0])+ '   ' +str(task_init_state[1][1])+ '   ' +str( location[0])+ '   ' +str(location[1])+ '   ' )
-        # # if task_init_state[1][0]!=  location[0] or task_init_state[1][1]!=  location[1]:
-        # #     print("location_init: " + str(task_init_state[1]) + '   current: '  + str(location))
-        # if done:
-        #     score = 1000
-        #     return score
-        # score = 0.0
-        # width,height= target_canvas.shape
-        # #I'll need to redo this if we add a gaussian around the line
-        # for h in range(height):
-        #     for w in range(width):
-        #         # print(str(target_canvas[h,w]) + '  ' + str(canvas[h,w]) )
-        #
-        #         # if target_canvas[h,w] == 0:
-        #         #     print(str(h) + '  ' + str(w))
-        #
-        #         if target_canvas[h,w] == 0 and  canvas[h,w] == 0:
-        #             score += 2.0
-        #         else:
-        #             if target_canvas[h,w] == 255 and canvas[h,w] == 0:
-        #                 score -= 1.0
-        # # print(score)
-        # return score
