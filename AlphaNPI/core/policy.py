@@ -3,7 +3,6 @@ from torch.nn import Linear, LSTMCell, Module, Embedding
 from torch.nn.init import uniform_
 from torch.distributions.beta import Beta
 import torch.nn.functional as F
-from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import scipy
 from scipy import stats
@@ -14,8 +13,8 @@ device = 'cpu'
 class CriticNet(Module):
     def __init__(self, hidden_size):
         super(CriticNet, self).__init__()
-        self.l1 = Linear(hidden_size, hidden_size//2)
-        self.l2 = Linear(hidden_size//2, 1)
+        self.l1 = Linear(hidden_size, hidden_size // 2)
+        self.l2 = Linear(hidden_size // 2, 1)
 
     def forward(self, hidden_state):
         x = F.relu(self.l1(hidden_state))
@@ -26,14 +25,14 @@ class CriticNet(Module):
 class ActorNet(Module):
     def __init__(self, hidden_size, num_programs):
         super(ActorNet, self).__init__()
-        self.program1 = Linear(hidden_size, hidden_size//2)
-        self.program2 = Linear(hidden_size//2, num_programs)
-
+        self.program1 = Linear(hidden_size, hidden_size // 2)
+        self.program2 = Linear(hidden_size // 2, num_programs)
 
     def forward(self, hidden_state):
         program = F.relu(self.program1(hidden_state))
         program = F.softmax(self.program2(program), dim=-1)
         return program
+
 
 class ContinuousNet(Module):
     def __init__(self, hidden_size):
@@ -43,8 +42,8 @@ class ContinuousNet(Module):
         self.beta3 = Linear(hidden_size, 2)
 
     def forward(self, hidden_state):
-        beta = F.softplus(self.beta1(hidden_state))
-        beta = F.softplus(self.beta2(beta))
+        beta = F.elu(self.beta1(hidden_state))
+        beta = F.elu(self.beta2(beta))
         beta = F.softplus(self.beta3(beta))
         return beta
 
@@ -63,6 +62,7 @@ class Policy(Module):
         indices_non_primary_programs (list): Non zero level programs' indices
         learning_rate (float, optional): Defaults to 10^-3.
     """
+
     def __init__(self, encoder, hidden_size, num_programs, num_non_primary_programs, embedding_dim,
                  encoding_dim, indices_non_primary_programs, learning_rate=1e-3, temperature=0.1):
 
@@ -87,12 +87,13 @@ class Policy(Module):
         self.beta_net = ContinuousNet(self._hidden_size)
         self.temperature = temperature
 
-        self.entropy_lambda = 0.2
+        self.entropy_lambda = 0.1
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
         self.init_optimizer_beta(lr=learning_rate)
         # Compute relative indices of non primary programs (to deal with task indices)
-        self.relative_indices = dict((prog_idx, relat_idx) for relat_idx, prog_idx in enumerate(indices_non_primary_programs))
+        self.relative_indices = dict(
+            (prog_idx, relat_idx) for relat_idx, prog_idx in enumerate(indices_non_primary_programs))
 
     def init_networks(self):
 
@@ -108,7 +109,6 @@ class Policy(Module):
         for p in self.actor.parameters():
             uniform_(p, self._uniform_init[0], self._uniform_init[1])
 
-
     def init_optimizer(self, lr):
         '''Initialize the optimizer.
 
@@ -116,7 +116,6 @@ class Policy(Module):
             lr (float): learning rate
         '''
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-
 
     def init_optimizer_beta(self, lr):
         '''Initialize the optimizer.
@@ -128,7 +127,7 @@ class Policy(Module):
         for p in self.beta_net.parameters():
             uniform_(p, self._uniform_init[0], self._uniform_init[1])
 
-        self.optimizer_beta = torch.optim.Adam(self.beta_net.parameters(), lr=lr*2)
+        self.optimizer_beta = torch.optim.Adam(self.beta_net.parameters(), lr=lr)
 
     def _one_hot_encode(self, digits, basis=6):
         """One hot encode a digit with basis. The digit may be None,
@@ -171,7 +170,8 @@ class Policy(Module):
         # print(relative_prog_indices)
         p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
         # print(p_t)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size,-1), p_t], -1), (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
+                                 (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         # print(torch.flatten(s_t).view(batch_size,-1))
         # print(p_t)
         # print((h_t.view(batch_size, -1))
@@ -203,18 +203,10 @@ class Policy(Module):
         s_t = self.encoder(e_t.view(batch_size, -1))
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
         p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size,-1), p_t], -1), (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
+                                 (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         beta_out = self.beta_net(new_h)
         return beta_out
-
-
-    def tile(self, a, dim, n_tile):
-        init_dim = a.size(dim)
-        repeat_idx = [1] * a.dim()
-        repeat_idx[dim] = n_tile
-        a = a.repeat(*(repeat_idx))
-        order_index = torch.FloatTensor(np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)]))
-        return torch.index_select(a, dim, order_index)
 
     def train_on_batch(self, batch):
         """perform optimization step.
@@ -231,145 +223,111 @@ class Policy(Module):
         lstm_states = batch[2]
         h_t, c_t = zip(*lstm_states)
         h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
-        policy_labels = torch.zeros(batch_size,self.num_programs)
+        policy_labels = torch.zeros(batch_size, self.num_programs)
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1]
+            policy_labels[i, 1:self.num_programs] = batch[3][i][0, batch_len - self.num_programs + 1:batch_len]
+            policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len - self.num_programs + 1])
 
-            policy_labels[i,1:self.num_programs] = batch[3][i][0,batch_len-self.num_programs+1 :batch_len]
-
-            policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len-self.num_programs+1])
         value_labels = torch.stack(batch[4]).view(-1, 1)
-        beta_labels = batch[5]
-        beta_probs = []
-        beta_counts = []
-        for i in range(batch_size):
-            batch_len = batch[3][i].size()[1]
-            betaL = batch[3][i][0,0:batch_len-self.num_programs+1]
-            beta_counts.append(betaL.view(1,-1))
-            betaL = torch.exp(betaL)/torch.exp(betaL).sum()
-            betaL = betaL.view(1,-1)
-            beta_probs.append(betaL)
-        # print(batch[3][0][0])
-        # print(beta_probs[0])
-        # print()
+
         self.optimizer.zero_grad()
 
         policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
-        # beta_prediction, policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
-
-        # print(torch.mean(beta_prediction,0))
-
-        # total_betas  = 0
-        # betaLoss = 0.0
-        # for i in range(batch_size):
-        #     dist = Beta(beta_prediction[i,0],beta_prediction[i,1])
-        #     pdf_t = dist.log_prob(beta_labels[i])
-        #     total_betas += pdf_t.size()[1]
-        #     temp = torch.log(beta_probs[i])
-        #     betaLoss += (pdf_t -temp).sum() - self.entropy_lambda * dist.entropy()
-        #     # print(dist.entropy())
-        #
-        # betaLoss /= float(total_betas)
-        # betaLoss /= 3.0
-
         policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-
         value_loss = torch.pow(value_predictions - value_labels, 2).mean()
-
-        # total_loss = (policy_loss + value_loss + betaLoss)
-
         total_loss = (policy_loss + value_loss)
-        # print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
-
-        # a = list(self.beta_net.parameters())[0].clone()
         total_loss.backward()
         self.optimizer.step()
-        # b = list(self.beta_net.parameters())[0].clone()
-        # print(torch.equal(a.data, b.data))
+
+        beta_l = batch[5]
+
+        beta_probs = []
+        for i in range(batch_size):
+            batch_len = batch[3][i].size()[1] - self.num_programs + 1
+            beta_probs.append( batch[3][i][0, 0:batch_len])
+            beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
+
+        loss_fn = torch.nn.KLDivLoss()
+        for i in range(batch_size):
+            self.optimizer_beta.zero_grad()
+            beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
+            dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
+            pdf_t = dist.log_prob(beta_l[i])
+            # print(pdf_t.size())
+            # print(torch.exp(pdf_t))
+
+            # print(torch.unsqueeze(beta_probs[i],0).size())
+            # betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
+            betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0))
+            print(betaLoss)
+            betaLoss.backward()
+            self.optimizer_beta.step()
 
 
-        beta_param_labels = []
-        for i in range(len(beta_labels)):
-            # print(beta_counts[i])
-            beta_label_distr = beta_labels[i].repeat_interleave((1000*beta_counts[i]).squeeze().type(torch.LongTensor), dim=1)
-            beta_label_distr = beta_label_distr.squeeze().data.numpy()
-
-            a, b, _, _ = stats.beta.fit(beta_label_distr)
-            beta_param_labels.append(torch.tensor([[a, b]]))
-
-        beta_param_labels = torch.cat(beta_param_labels, dim=0)
-
-        self.optimizer_beta.zero_grad()
-        beta_prediction= self.predict_on_batch_beta(e_t, i_t, h_t, c_t)
-
-        betaLoss = -(beta_prediction - beta_param_labels).pow(2).sum(dim=0).mean()
-
-
-        # self.optimizer_beta.zero_grad()
-        # beta_prediction= self.predict_on_batch_beta(e_t, i_t, h_t, c_t)
-        # total_betas = 0
-        # betaLoss = 0.0
-        # sum_pdf, sum_beta_probs, entropy = 0.0, 0.0, 0.0
-
-        # beta_dim = torch.tensor([b.squeeze().size()[0] for b in beta_labels])
-
-
-        # beta_prediction_repeated = beta_prediction.repeat_interleave(beta_dim, dim=0)
-        # dist = Beta(beta_prediction_repeated[:, 0], beta_prediction_repeated[:, 1])
-
-        # # beta_labels_padded = pad_sequence([b.squeeze() for b in beta_labels], batch_first=True, padding_value=dist.mean)
-        # # print(beta_labels_padded.flatten())
-        
-        # pdf_t = dist.log_prob(torch.cat(beta_labels, dim=1).flatten())
-        # # with torch.no_grad():
-        #     # beta_probs_padded = pad_sequence([b.squeeze() for b in beta_probs], batch_first=True, padding_value=dist.log_prob(dist.mean))
-        # temp = torch.log(torch.cat(beta_probs, dim=1).flatten())
-
-        # pdf_t[abs(pdf_t) == float('inf')] = 0
-        # temp[abs(temp) == float('inf')] = 0
-
-        # # print((pdf_t - temp).pow(2))
-        # # print(dist.entropy())
-
-        # betaLoss = ((pdf_t - temp).pow(2) + self.entropy_lambda * dist.entropy()).mean()
-        
-
-        # for i in range(batch_size):
-        #     dist = Beta(beta_prediction[i, 0], beta_prediction[i, 1])
-        #     pdf_t = dist.log_prob(beta_labels[i])
-        #     # print(beta_prediction[i].tolist())
-        #     # print(beta_labels[i].mean())
-        #     total_betas += pdf_t.size()[1]
-        #     temp = torch.log(beta_probs[i])
-        #     betaLoss += (pdf_t - temp).pow(2).sum() - self.entropy_lambda * dist.entropy()
-
-        #     sum_pdf += pdf_t.sum()
-        #     sum_beta_probs += temp.sum()
-        #     entropy += dist.entropy()
-        #     # print(dist.entropy())
-
-        #     print(f"Beta VC: {beta_labels[i]} \nProb: {beta_probs[i]}")
-
-        # print(f"sum_pdf: {sum_pdf}    sum_beta_probs: {sum_beta_probs}    entropy: {entropy}")
-
-
-        # betaLoss /= float(total_betas)
-        # c = list(self.beta_net.parameters())[0].clone()
-
-        print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
-
-        betaLoss.backward()
-        self.optimizer_beta.step()
-        # d = list(self.beta_net.parameters())[0].clone()
-        # print(torch.equal(c.data, d.data))
-
-
+        print( "totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
         return policy_loss, value_loss, total_loss
 
-
-
-
-
+    # def train_on_batch(self, batch):
+    #     """perform optimization step.
+    #
+    #     Args:
+    #       batch (tuple): tuple of batches of environment observations, calling programs, lstm's hidden and cell states
+    #
+    #     Returns:
+    #       policy loss, value loss, total loss combining policy and value losses
+    #     """
+    #     e_t = torch.FloatTensor(np.stack(batch[0]))
+    #     i_t = batch[1]
+    #     batch_size = len(i_t)
+    #     lstm_states = batch[2]
+    #     h_t, c_t = zip(*lstm_states)
+    #     h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
+    #     policy_labels = torch.zeros(batch_size,self.num_programs)
+    #     for i in range(batch_size):
+    #         batch_len = batch[3][i].size()[1]
+    #         policy_labels[i,1:self.num_programs] = batch[3][i][0,batch_len-self.num_programs+1 :batch_len]
+    #         policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len-self.num_programs+1])
+    #     value_labels = torch.stack(batch[4]).view(-1, 1)
+    #
+    #     self.optimizer.zero_grad()
+    #     policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
+    #     policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
+    #     value_loss = torch.pow(value_predictions - value_labels, 2).mean()
+    #     total_loss = (policy_loss + value_loss)
+    #     total_loss.backward()
+    #     self.optimizer.step()
+    #
+    #
+    #
+    #     beta_labels = batch[5]
+    #     beta_probs = []
+    #     for i in range(batch_size):
+    #         batch_len = batch[3][i].size()[1]
+    #         betaL = batch[3][i][0,0:batch_len-self.num_programs+1]
+    #         betaL = betaL/betaL.sum()
+    #         betaL = betaL.view(1,-1)
+    #         beta_probs.append(betaL)
+    #
+    #     loss_fn = torch.nn.KLDivLoss()
+    #
+    #     self.optimizer_beta.zero_grad()
+    #     beta_prediction= self.predict_on_batch_beta(e_t, i_t, h_t, c_t)
+    #     total_betas = 0
+    #     betaLoss = 0.0
+    #     for i in range(batch_size):
+    #         dist = Beta(beta_prediction[i, 0], beta_prediction[i, 1])
+    #         pdf_t = dist.log_prob(beta_labels[i])
+    #         total_betas += pdf_t.size()[1]
+    #         temp = torch.log(beta_probs[i])
+    #         betaLoss +=
+    #         # betaLoss += ((pdf_t - temp)**2.0).sum()- self.entropy_lambda * dist.entropy()
+    #     betaLoss.backward()
+    #
+    #     self.optimizer_beta.step()
+    #
+    #     print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
+    #     return policy_loss, value_loss, total_loss
 
     def forward_once(self, e_t, i_t, h, c):
         """Run one NPI inference using predict.
@@ -396,7 +354,7 @@ class Policy(Module):
 
     def init_tensors(self):
         """Creates tensors representing the internal states of the lstm filled with zeros.
-        
+
         Returns:
             instantiated hidden and cell states
         """
@@ -404,4 +362,3 @@ class Policy(Module):
         c = torch.zeros(1, self._hidden_size)
         h, c = h.to(device), c.to(device)
         return h, c
-

@@ -113,7 +113,7 @@ class ContinuousMCTS:
             )
 
             beta_out, priors, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
-
+            # print(beta_out)
             Beta_Parameters = node["Beta_Parameters"] = betaD = torch.flatten(beta_out)
 
 
@@ -205,7 +205,7 @@ class ContinuousMCTS:
             #May want to change this.  It relies on it being a new node so there will only be one continuous value as no widening will have happened
             cval = None
 
-            print((prog_index, c_children))
+            # print((prog_index, c_children))
             if prog_index in c_children:
                 cval = c_children[prog_index]["cval"]
                 # print(cval)
@@ -564,7 +564,7 @@ class ContinuousMCTS:
             # play an episode
             final_node, max_depth_reached = self._play_episode(self.root_node)
             final_node['selected'] = True
-
+            # print("num children: " + str(len(final_node['childs'])) + "  depth: "  + str(final_node["depth"]))
             print([(c.get('cval'), final_node['total_action_value'][i]) for i, c in enumerate(final_node['childs'])])
 
 
