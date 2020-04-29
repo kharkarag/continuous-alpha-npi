@@ -3,6 +3,7 @@ from torch.nn import Linear, LSTMCell, Module, Embedding
 from torch.nn.init import uniform_
 from torch.distributions.beta import Beta
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import scipy
 from scipy import stats
@@ -42,8 +43,8 @@ class ContinuousNet(Module):
         self.beta3 = Linear(hidden_size, 2)
 
     def forward(self, hidden_state):
-        beta = F.elu(self.beta1(hidden_state))
-        beta = F.elu(self.beta2(beta))
+        beta = F.softplus(self.beta1(hidden_state))
+        beta = F.softplus(self.beta2(beta))
         beta = F.softplus(self.beta3(beta))
         return beta
 
@@ -86,7 +87,7 @@ class Policy(Module):
         self.beta_net = ContinuousNet(self._hidden_size)
         self.temperature = temperature
 
-        self.entropy_lambda = 0.1
+        self.entropy_lambda = 0.2
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
         self.init_optimizer_beta(lr=learning_rate)
@@ -127,7 +128,7 @@ class Policy(Module):
         for p in self.beta_net.parameters():
             uniform_(p, self._uniform_init[0], self._uniform_init[1])
 
-        self.optimizer_beta = torch.optim.Adam(self.beta_net.parameters(), lr=lr)
+        self.optimizer_beta = torch.optim.Adam(self.beta_net.parameters(), lr=lr*2)
 
     def _one_hot_encode(self, digits, basis=6):
         """One hot encode a digit with basis. The digit may be None,
@@ -206,6 +207,15 @@ class Policy(Module):
         beta_out = self.beta_net(new_h)
         return beta_out
 
+
+    def tile(self, a, dim, n_tile):
+        init_dim = a.size(dim)
+        repeat_idx = [1] * a.dim()
+        repeat_idx[dim] = n_tile
+        a = a.repeat(*(repeat_idx))
+        order_index = torch.FloatTensor(np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)]))
+        return torch.index_select(a, dim, order_index)
+
     def train_on_batch(self, batch):
         """perform optimization step.
 
@@ -234,7 +244,7 @@ class Policy(Module):
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1]
             betaL = batch[3][i][0,0:batch_len-self.num_programs+1]
-            betaL = betaL/betaL.sum()
+            betaL = torch.exp(betaL)/torch.exp(betaL).sum()
             betaL = betaL.view(1,-1)
             beta_probs.append(betaL)
         # print(batch[3][0][0])
@@ -280,15 +290,51 @@ class Policy(Module):
         beta_prediction= self.predict_on_batch_beta(e_t, i_t, h_t, c_t)
         total_betas = 0
         betaLoss = 0.0
-        for i in range(batch_size):
-            dist = Beta(beta_prediction[i, 0], beta_prediction[i, 1])
-            pdf_t = dist.log_prob(beta_labels[i])
-            total_betas += pdf_t.size()[1]
-            temp = torch.log(beta_probs[i])
-            betaLoss += (pdf_t - temp).sum() - self.entropy_lambda * dist.entropy()
-            # print(dist.entropy())
+        sum_pdf, sum_beta_probs, entropy = 0.0, 0.0, 0.0
 
-        betaLoss /= float(total_betas)
+        beta_dim = torch.tensor([b.squeeze().size()[0] for b in beta_labels])
+
+
+        beta_prediction_repeated = beta_prediction.repeat_interleave(beta_dim, dim=0)
+        dist = Beta(beta_prediction_repeated[:, 0], beta_prediction_repeated[:, 1])
+
+        # beta_labels_padded = pad_sequence([b.squeeze() for b in beta_labels], batch_first=True, padding_value=dist.mean)
+        # print(beta_labels_padded.flatten())
+        
+        pdf_t = dist.log_prob(torch.cat(beta_labels, dim=1).flatten())
+        # with torch.no_grad():
+            # beta_probs_padded = pad_sequence([b.squeeze() for b in beta_probs], batch_first=True, padding_value=dist.log_prob(dist.mean))
+        temp = torch.log(torch.cat(beta_probs, dim=1).flatten())
+
+        pdf_t[abs(pdf_t) == float('inf')] = 0
+        temp[abs(temp) == float('inf')] = 0
+
+        # print((pdf_t - temp).pow(2))
+        # print(dist.entropy())
+
+        betaLoss = ((pdf_t - temp).pow(2) + self.entropy_lambda * dist.entropy()).mean()
+        
+
+        # for i in range(batch_size):
+        #     dist = Beta(beta_prediction[i, 0], beta_prediction[i, 1])
+        #     pdf_t = dist.log_prob(beta_labels[i])
+        #     # print(beta_prediction[i].tolist())
+        #     # print(beta_labels[i].mean())
+        #     total_betas += pdf_t.size()[1]
+        #     temp = torch.log(beta_probs[i])
+        #     betaLoss += (pdf_t - temp).pow(2).sum() - self.entropy_lambda * dist.entropy()
+
+        #     sum_pdf += pdf_t.sum()
+        #     sum_beta_probs += temp.sum()
+        #     entropy += dist.entropy()
+        #     # print(dist.entropy())
+
+        #     print(f"Beta VC: {beta_labels[i]} \nProb: {beta_probs[i]}")
+
+        # print(f"sum_pdf: {sum_pdf}    sum_beta_probs: {sum_beta_probs}    entropy: {entropy}")
+
+
+        # betaLoss /= float(total_betas)
         # c = list(self.beta_net.parameters())[0].clone()
         betaLoss.backward()
         self.optimizer_beta.step()

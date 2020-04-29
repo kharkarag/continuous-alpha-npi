@@ -22,7 +22,7 @@ level_closeness_coeff = 3.0                 # importance given to higher level p
 # Training hyper-params
 num_iterations = 50                        # total number of iterations, one iteration corresponds to one task
 num_episodes_per_task = 10                  # number of episodes played for each new task attempted
-batch_size = 64                           # training batch size
+batch_size = 8                           # training batch size
 # batch_size = 256                            # training batch size
 buffer_max_length = 2000                    # replay buffer max length
 num_updates_per_episode = 2                 # number of gradient descents for every episode played

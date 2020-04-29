@@ -86,6 +86,7 @@ class ContinuousMCTS:
                 crange  = self.env.programs_library[pname]['crange']
                 dist = Beta(betaD[0], betaD[1])
                 new_cval = crange[0] + crange[1] * dist.sample()
+                # print((new_cval.tolist(), betaD.tolist()))
 
                 # Dist_val = np.random.beta(betaD[0],betaD[1])
                 # # print(Dist_val)
@@ -456,6 +457,8 @@ class ContinuousMCTS:
 
                     value = float(value)
 
+                    # print(f"Cval: {node.get('cval')} | value: {value}")
+
 
                     #THIS IS THE ONLY PLACE VISIT COUNT IS INCREMENTED SO IT WIDENS HERE
                     # Propagate information backwards
@@ -478,7 +481,7 @@ class ContinuousMCTS:
                 num_continuous = len(root_node["childs"])-self.env.get_num_programs()+2
                 pname = self.env.get_program_from_index(root_node["childs"][0]["program_from_parent_index"])
                 crange = self.env.programs_library[pname]['crange']
-                cont_vals =torch.zeros(1,num_continuous)
+                cont_vals = torch.zeros(1,num_continuous)
                 for i in range(num_continuous):
                     cont_vals[0, i] = (root_node["childs"][i]["cval"]-crange[0])/crange[1]
                 if self.env.get_program_from_index(root_node["childs"][program_to_call_index]["program_index"]) == self.env.get_program_from_index(self.task_index):

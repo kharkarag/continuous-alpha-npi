@@ -26,9 +26,12 @@ class DrawEnvEncoder(nn.Module):
         channels = [1, 16, 32, 64]
         self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1)
         self.conv2 = nn.Conv2d(channels[1], channels[2], 3, padding=1)
-        # self.conv3 = nn.Conv2d(channels[2], channels[3], 3, padding=1)
+        self.conv3 = nn.Conv2d(channels[2], channels[3], 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.ln1 = nn.Linear(80000, encoding_dim)
+        self.ln1 = nn.Linear(9216, encoding_dim)
+
+
+        self = self.cuda()
         #Before Changes
         # channels = [1, 10, 30]
         # self.conv1 = nn.Conv2d(channels[0], channels[1], 3, padding=1)
@@ -39,19 +42,21 @@ class DrawEnvEncoder(nn.Module):
     def forward(self, x):
         #We need to resphape the input because it is being passed in flat because the other programs wouldn't need convolutions
         # print(x.size())
-        x = x.view(-1,1,200,200)
+        x = x.view(-1,1,100,100)
+
+        x = x.cuda()
         # print(x.size())
         x = self.pool(F.relu(self.conv1(x)))
         # print(x.size())
         x = self.pool(F.relu(self.conv2(x)))
         # print(x.size())
-        # x = self.pool(F.relu(self.conv3(x)))
+        x = self.pool(F.relu(self.conv3(x)))
         # print(x.size())
         x = torch.flatten(x,start_dim=1)
         # print(x.size())
         x = F.relu(self.ln1(x))
         # print(x)
-        return x
+        return x.cpu()
 
         # #Before Changes
         # #We need to resphape the input because it is being passed in flat because the other programs wouldn't need convolutions
@@ -78,7 +83,7 @@ class DrawEnv(Environment):
     The episode stops when the list is sorted.
     """
 
-    def __init__(self, dim=200, encoding_dim=32, hierarchy=True):
+    def __init__(self, dim=100, encoding_dim=32, hierarchy=True):
 
         assert dim > 0, "length must be a positive integer"
         self.dim = dim
@@ -91,7 +96,7 @@ class DrawEnv(Environment):
 
         # self.current_pixel_data = self.current_canvas.load()
         self.current_pix = np.array([dim//2]*2)
-        self.stride = 1
+        self.stride = 3
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
 
@@ -171,7 +176,7 @@ class DrawEnv(Environment):
     def _move(self, action):
         #This finds the target pixel to move to
         cartesian = cmath.rect(self.stride, action)
-        movement = np.array([cartesian.real, cartesian.imag])
+        movement = np.array([cartesian.imag, cartesian.real])
         target = self.current_pix + movement
         if target[0]>=0.0 and target[0]<= self.dim and target[1]>=0.0 and target[1]<= self.dim:
             #This is probably an inefficient way to find the pixels the line moves through
@@ -303,8 +308,8 @@ class DrawEnv(Environment):
         """
         # start with an empty white canvas
         self.current_canvas = np.array(self._create_new_canvas())
-
-        self.current_canvas[self.current_pix.astype(int)] = 0
+        cur_x, cur_y = self.current_pix.astype(int)
+        self.current_canvas[cur_x, cur_y] = 0
         # self.current_pixel_data = np.array(self.current_canvas)
         # start at center
         self.current_pix = np.array([self.width // 2, self.height // 2])
@@ -395,9 +400,13 @@ class DrawEnv(Environment):
 
         gaussian_canvas = gaussian_filter(target_canvas, sigma=3)
 
-        intersection = np.logical_and(target_canvas == 0, canvas == 0)
+        # intersection = np.logical_and(target_canvas == 0, canvas == 0)
 
-        # intersection = np.multiply(1-canvas, 1-gaussian_canvas)
+
+        intersection = np.multiply(1-canvas/255, 1-gaussian_canvas/255)
+        # print((np.sum(1-canvas/255), np.sum(1-target_canvas/255)))
+
+        # print(f"Int: {np.sum(intersection)}")
 
         union = np.logical_or(target_canvas == 0, canvas == 0)
         # print(np.sum(union))
