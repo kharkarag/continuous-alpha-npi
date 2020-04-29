@@ -81,7 +81,7 @@ curriculum_scheduler = CurriculumScheduler(conf.reward_threshold, num_non_primar
 
 # Prepare mcts params
 length = 5
-max_depth_dict = {1: 3, 2: 10, 3: 20}
+max_depth_dict = {1: 7, 2: 10, 3: 20}
 mcts_train_params = {'number_of_simulations': conf.number_of_simulations, 'max_depth_dict': max_depth_dict,
                      'temperature': conf.temperature, 'c_puct': conf.c_puct, 'exploit': False,
                      'level_closeness_coeff': conf.level_closeness_coeff, 'gamma': conf.gamma,

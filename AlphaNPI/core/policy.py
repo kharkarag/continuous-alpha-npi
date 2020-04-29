@@ -225,6 +225,9 @@ class Policy(Module):
         h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
         policy_labels = torch.zeros(batch_size, self.num_programs)
         for i in range(batch_size):
+            print(batch[3][i])
+            print(batch[5][i])
+            print()
             batch_len = batch[3][i].size()[1]
             policy_labels[i, 1:self.num_programs] = batch[3][i][0, batch_len - self.num_programs + 1:batch_len]
             policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len - self.num_programs + 1])
@@ -260,12 +263,12 @@ class Policy(Module):
             # print(torch.unsqueeze(beta_probs[i],0).size())
             # betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
             betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0))
-            print(betaLoss)
+            # print(betaLoss)
             betaLoss.backward()
             self.optimizer_beta.step()
 
 
-        print( "totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
+        # print( "totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
         return policy_loss, value_loss, total_loss
 
     # def train_on_batch(self, batch):

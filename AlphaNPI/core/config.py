@@ -11,7 +11,7 @@ hidden_size = 128                           # size of hidden state h_t
 learning_rate = 1e-3                        # learning rate for the policy optimizer
 
 # Curriculum hyper-params
-reward_threshold = 0.97                    # reward threshold to increase the tasks levels in curriculum strategy
+reward_threshold = 14.00                    # reward threshold to increase the tasks levels in curriculum strategy
 
 # MCTS hyper-params
 number_of_simulations = 500                 # number of simulations played before taking an action

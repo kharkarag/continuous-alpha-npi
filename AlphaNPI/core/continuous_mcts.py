@@ -238,10 +238,15 @@ class ContinuousMCTS:
 
     def _compute_q_value(self, node):
         if node["visit_count"] > 0.0:
+            # values = torch.FloatTensor(node['total_action_value'])
+            # softmax = torch.exp(self.qvalue_temperature * values)
+            # softmax = softmax / softmax.sum()
+            # q_val_action = float(torch.dot(softmax, values))
+
             values = torch.FloatTensor(node['total_action_value'])
-            softmax = torch.exp(self.qvalue_temperature * values)
-            softmax = softmax / softmax.sum()
-            q_val_action = float(torch.dot(softmax, values))
+            # softmax = torch.exp(self.qvalue_temperature * values)
+            # softmax = softmax / softmax.sum()
+            q_val_action = float(values.sum()/float(node["visit_count"]))
         else:
             q_val_action = 0.0
         return q_val_action
@@ -257,18 +262,21 @@ class ContinuousMCTS:
           best child found from this node.
 
         """
-
         best_val = -np.inf
         best_child = None
         # Iterate all the children to fill up the node dict and estimate Q val.
         # Then track the best child found according to the Q value estimation
         # print(len(node["childs"]))
+        # val_list = []
         for child in node["childs"]:
             if child["prior"] > 0.0:
                 q_val_action = self._compute_q_value(child)
 
                 action_utility = (self.c_puct * child["prior"] * np.sqrt(node["visit_count"])
                                   * (1.0 / (1.0 + child["visit_count"])))
+                # print(q_val_action)
+                # print(action_utility)
+                # print()
                 q_val_action += action_utility
                 parent_prog_lvl = self.env.programs_library[self.env.idx_to_prog[node['program_index']]]['level']
                 action_prog_lvl = self.env.programs_library[self.env.idx_to_prog[child['program_from_parent_index']]]['level']
@@ -282,14 +290,19 @@ class ContinuousMCTS:
                     # special treatment for STOP action
                     action_level_closeness = self.level_closeness_coeff * np.exp(-1)
 
-                q_val_action += action_level_closeness
+                # q_val_action += action_level_closeness
+                # val_list.append(q_val_action)
+                # print(q_val_action/(action_utility+action_level_closeness))
+                # print(q_val_action)
+
                 if q_val_action > best_val:
                     best_val = q_val_action
                     best_child = child
 
         if best_child == None:
             print("None Child")
-
+        # print(val_list)
+        # print(best_val)
         return best_child
 
 
@@ -313,7 +326,6 @@ class ContinuousMCTS:
         mcts_policy = torch.zeros(1, len(root_node["childs"])+pad)
         for i, visit in visits_policy:
             mcts_policy[0, i] = visit
-
         if self.exploit:
             mcts_policy = mcts_policy / mcts_policy.sum()
             return mcts_policy, int(torch.argmax(mcts_policy))
@@ -448,13 +460,15 @@ class ContinuousMCTS:
                     # if not simulation_max_depth_reached and not has_expanded_node:
                     if not has_expanded_node:
                         # if node corresponds to end of an episode, backprogagate real reward
-                        reward = self.env.get_reward() - root_node['depth']/1000.0
+                        # reward = self.env.get_reward() - root_node['depth']/1000.0
+                        reward = self.env.get_reward()
                         # print("reward: " + str(reward))
                         if reward > 0:
                             value = self.env.get_reward() * (self.gamma ** node['depth'])
                             # print("value: " + str(value))
                             if self.recursive_task and not self.recursive_call:
                                 # if recursive task but do not called itself, add penalization
+                                print("flag")
                                 value -= self.recursive_penalty
                         else:
                             value = 0.0
@@ -467,7 +481,7 @@ class ContinuousMCTS:
 
                     # print(f"Cval: {node.get('cval')} | value: {value}")
 
-
+                    # print(value)
                     #THIS IS THE ONLY PLACE VISIT COUNT IS INCREMENTED SO IT WIDENS HERE
                     # Propagate information backwards
                     while node["parent"] is not None:
@@ -565,7 +579,7 @@ class ContinuousMCTS:
             final_node, max_depth_reached = self._play_episode(self.root_node)
             final_node['selected'] = True
             # print("num children: " + str(len(final_node['childs'])) + "  depth: "  + str(final_node["depth"]))
-            print([(c.get('cval'), final_node['total_action_value'][i]) for i, c in enumerate(final_node['childs'])])
+            # print([(c.get('cval'), final_node['total_action_value'][i]) for i, c in enumerate(final_node['childs'])])
 
 
         # compute final task reward (with gamma penalization)

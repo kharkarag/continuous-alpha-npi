@@ -413,4 +413,4 @@ class DrawEnv(Environment):
         # print()
         score = np.sum(intersection)/np.sum(union)
 
-        return score
+        return score*100.0
