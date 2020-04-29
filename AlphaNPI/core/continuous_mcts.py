@@ -112,6 +112,11 @@ class ContinuousMCTS:
                 node["Beta_Parameters"]
             )
 
+            beta_out, priors, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
+
+            Beta_Parameters = node["Beta_Parameters"] = betaD = torch.flatten(beta_out)
+
+
             mask = self.env.get_mask_over_actions(program_index)
 
             # This will give the index for each available program
@@ -200,6 +205,7 @@ class ContinuousMCTS:
             #May want to change this.  It relies on it being a new node so there will only be one continuous value as no widening will have happened
             cval = None
 
+            print((prog_index, c_children))
             if prog_index in c_children:
                 cval = c_children[prog_index]["cval"]
                 # print(cval)
@@ -302,6 +308,7 @@ class ContinuousMCTS:
         for i, child in enumerate(root_node["childs"]):
             if child["prior"] > 0.0:
                 visits_policy.append([i, child["visit_count"]])
+                # print(f"Child: {child.get('cval')} | {child.get('visit_count')} | {child.get('total_action_value')}")
 
         mcts_policy = torch.zeros(1, len(root_node["childs"])+pad)
         for i, visit in visits_policy:
@@ -438,7 +445,8 @@ class ContinuousMCTS:
                     simulation_max_depth_reached, has_expanded_node, node, value = self._run_simulation(root_node)
 
                     # get reward
-                    if not simulation_max_depth_reached and not has_expanded_node:
+                    # if not simulation_max_depth_reached and not has_expanded_node:
+                    if not has_expanded_node:
                         # if node corresponds to end of an episode, backprogagate real reward
                         reward = self.env.get_reward() - root_node['depth']/1000.0
                         # print("reward: " + str(reward))
@@ -470,6 +478,10 @@ class ContinuousMCTS:
                     # Root node is not included in the while loop
                     self.root_node["total_action_value"].append(value)
                     self.root_node["visit_count"] += 1
+                    
+                    # print((self.root_node['childs'][-1].get('cval'), value) )
+
+
                     self.check_widening(self.root_node)
                     # Go back to current env state
                     self.env.reset_to_state(env_state)
@@ -552,6 +564,9 @@ class ContinuousMCTS:
             # play an episode
             final_node, max_depth_reached = self._play_episode(self.root_node)
             final_node['selected'] = True
+
+            print([(c.get('cval'), final_node['total_action_value'][i]) for i, c in enumerate(final_node['childs'])])
+
 
         # compute final task reward (with gamma penalization)
         reward = self.env.get_reward()

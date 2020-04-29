@@ -241,9 +241,11 @@ class Policy(Module):
         value_labels = torch.stack(batch[4]).view(-1, 1)
         beta_labels = batch[5]
         beta_probs = []
+        beta_counts = []
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1]
             betaL = batch[3][i][0,0:batch_len-self.num_programs+1]
+            beta_counts.append(betaL.view(1,-1))
             betaL = torch.exp(betaL)/torch.exp(betaL).sum()
             betaL = betaL.view(1,-1)
             beta_probs.append(betaL)
@@ -286,33 +288,50 @@ class Policy(Module):
         # print(torch.equal(a.data, b.data))
 
 
+        beta_param_labels = []
+        for i in range(len(beta_labels)):
+            # print(beta_counts[i])
+            beta_label_distr = beta_labels[i].repeat_interleave((1000*beta_counts[i]).squeeze().type(torch.LongTensor), dim=1)
+            beta_label_distr = beta_label_distr.squeeze().data.numpy()
+
+            a, b, _, _ = stats.beta.fit(beta_label_distr)
+            beta_param_labels.append(torch.tensor([[a, b]]))
+
+        beta_param_labels = torch.cat(beta_param_labels, dim=0)
+
         self.optimizer_beta.zero_grad()
         beta_prediction= self.predict_on_batch_beta(e_t, i_t, h_t, c_t)
-        total_betas = 0
-        betaLoss = 0.0
-        sum_pdf, sum_beta_probs, entropy = 0.0, 0.0, 0.0
 
-        beta_dim = torch.tensor([b.squeeze().size()[0] for b in beta_labels])
+        betaLoss = -(beta_prediction - beta_param_labels).pow(2).sum(dim=0).mean()
 
 
-        beta_prediction_repeated = beta_prediction.repeat_interleave(beta_dim, dim=0)
-        dist = Beta(beta_prediction_repeated[:, 0], beta_prediction_repeated[:, 1])
+        # self.optimizer_beta.zero_grad()
+        # beta_prediction= self.predict_on_batch_beta(e_t, i_t, h_t, c_t)
+        # total_betas = 0
+        # betaLoss = 0.0
+        # sum_pdf, sum_beta_probs, entropy = 0.0, 0.0, 0.0
 
-        # beta_labels_padded = pad_sequence([b.squeeze() for b in beta_labels], batch_first=True, padding_value=dist.mean)
-        # print(beta_labels_padded.flatten())
+        # beta_dim = torch.tensor([b.squeeze().size()[0] for b in beta_labels])
+
+
+        # beta_prediction_repeated = beta_prediction.repeat_interleave(beta_dim, dim=0)
+        # dist = Beta(beta_prediction_repeated[:, 0], beta_prediction_repeated[:, 1])
+
+        # # beta_labels_padded = pad_sequence([b.squeeze() for b in beta_labels], batch_first=True, padding_value=dist.mean)
+        # # print(beta_labels_padded.flatten())
         
-        pdf_t = dist.log_prob(torch.cat(beta_labels, dim=1).flatten())
-        # with torch.no_grad():
-            # beta_probs_padded = pad_sequence([b.squeeze() for b in beta_probs], batch_first=True, padding_value=dist.log_prob(dist.mean))
-        temp = torch.log(torch.cat(beta_probs, dim=1).flatten())
+        # pdf_t = dist.log_prob(torch.cat(beta_labels, dim=1).flatten())
+        # # with torch.no_grad():
+        #     # beta_probs_padded = pad_sequence([b.squeeze() for b in beta_probs], batch_first=True, padding_value=dist.log_prob(dist.mean))
+        # temp = torch.log(torch.cat(beta_probs, dim=1).flatten())
 
-        pdf_t[abs(pdf_t) == float('inf')] = 0
-        temp[abs(temp) == float('inf')] = 0
+        # pdf_t[abs(pdf_t) == float('inf')] = 0
+        # temp[abs(temp) == float('inf')] = 0
 
-        # print((pdf_t - temp).pow(2))
-        # print(dist.entropy())
+        # # print((pdf_t - temp).pow(2))
+        # # print(dist.entropy())
 
-        betaLoss = ((pdf_t - temp).pow(2) + self.entropy_lambda * dist.entropy()).mean()
+        # betaLoss = ((pdf_t - temp).pow(2) + self.entropy_lambda * dist.entropy()).mean()
         
 
         # for i in range(batch_size):
@@ -336,13 +355,15 @@ class Policy(Module):
 
         # betaLoss /= float(total_betas)
         # c = list(self.beta_net.parameters())[0].clone()
+
+        print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
+
         betaLoss.backward()
         self.optimizer_beta.step()
         # d = list(self.beta_net.parameters())[0].clone()
         # print(torch.equal(c.data, d.data))
 
 
-        print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
         return policy_loss, value_loss, total_loss
 
 
