@@ -18,7 +18,7 @@ class CriticNet(Module):
 
     def forward(self, hidden_state):
         x = F.relu(self.l1(hidden_state))
-        x = torch.sigmoid(self.l2(x))
+        x = torch.relu(self.l2(x))
         return x
 
 
@@ -225,9 +225,9 @@ class Policy(Module):
         h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
         policy_labels = torch.zeros(batch_size, self.num_programs)
         for i in range(batch_size):
-            print(batch[3][i])
-            print(batch[5][i])
-            print()
+            # print(batch[3][i])
+            # print(batch[5][i])
+            # print()
             batch_len = batch[3][i].size()[1]
             policy_labels[i, 1:self.num_programs] = batch[3][i][0, batch_len - self.num_programs + 1:batch_len]
             policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len - self.num_programs + 1])
@@ -264,19 +264,26 @@ class Policy(Module):
             beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
             # print(beta_prediction)
             dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
-            pdf_t = dist.log_prob(beta_l[i])
-            # print(pdf_t.size())
-            # print(torch.exp(pdf_t))
+
+            # pdf_t = dist.log_prob(beta_l[i])
+
+            pdf_t = torch.exp(dist.log_prob(beta_l[i]))
+            pdf_t = pdf_t/torch.sum(pdf_t)
+            pdf_t = torch.log(pdf_t)
+            # print(pdf_t)
+            # print(beta_probs[i])
 
             # print(torch.unsqueeze(beta_probs[i],0).size())
             # betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
             betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0))
             # print(betaLoss)
+            # print()
+            # print()
             betaLoss.backward()
             self.optimizer_beta.step()
 
 
-        # print( "totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
+        print( "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
         return policy_loss, value_loss, total_loss
 
     # def train_on_batch(self, batch):

@@ -614,7 +614,7 @@ class ContinuousMCTS:
 
         # end task
         self.env.end_task()
-
+        # print(self.rewards)
         return self.observations, self.programs_index, self.previous_actions, self.mcts_policies, \
                self.lstm_states, max_depth_reached, self.root_node, task_reward, self.clean_sub_executions, self.rewards, \
                self.programs_failed_indices, self.programs_failed_initstates, self.cvals

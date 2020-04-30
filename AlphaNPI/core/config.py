@@ -14,8 +14,8 @@ learning_rate = 1e-3                        # learning rate for the policy optim
 reward_threshold = 14.00                    # reward threshold to increase the tasks levels in curriculum strategy
 
 # MCTS hyper-params
-number_of_simulations = 1500                 # number of simulations played before taking an action
-c_puct = 0.75                             # trade-off exploration/exploitation in mcts
+number_of_simulations = 1000                 # number of simulations played before taking an action
+c_puct = 0.65                             # trade-off exploration/exploitation in mcts
 temperature = 0.5                          # coefficient to artificially increase variance in mcts policy distributions
 level_closeness_coeff = 0.0001                 # importance given to higher level programs
 
