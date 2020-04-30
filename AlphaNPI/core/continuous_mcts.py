@@ -6,6 +6,9 @@ import torch
 from scipy import stats
 from torch.distributions.beta import Beta
 
+avg = 0.0
+num_avg = 0
+
 class ContinuousMCTS:
     """This class is used to perform a search over the state space for different paths by building
     a tree of visited states. Then this tree is used to get an estimation distribution of
@@ -36,7 +39,7 @@ class ContinuousMCTS:
                  c_puct=1.0, number_of_simulations=100, max_depth_dict={1: 20, 2: 20, 3: 20},
                  temperature=1.0, use_dirichlet_noise=False,
                  dir_epsilon=0.25, dir_noise=0.03, exploit=False, gamma=0.97, save_sub_trees=False,
-                 recursion_depth=0, max_recursion_depth=500, qvalue_temperature=1.0, recursive_penalty=0.9,cpw = 1, kappa = 0.5):
+                 recursion_depth=0, max_recursion_depth=500, qvalue_temperature=1.0, recursive_penalty=0.9,cpw = 1, kappa = 0.3):
 
         self.policy = policy
         self.c_puct = c_puct
@@ -60,7 +63,7 @@ class ContinuousMCTS:
         self.qvalue_temperature = qvalue_temperature
         self.cpw = cpw
         self.kappa = kappa
-        self.max_wide = 40
+
 
         # record if all sub-programs executed correctly (useful only for programs of level > 1)
         self.clean_sub_executions = True
@@ -85,6 +88,7 @@ class ContinuousMCTS:
             if self.env.programs_library[pname]['continuous'] == True:
                 crange  = self.env.programs_library[pname]['crange']
                 dist = Beta(betaD[0], betaD[1])
+                # print("mean: " + str(dist.mean) + "     var: " + str(dist.variance))
                 new_cval = crange[0] + crange[1] * dist.sample()
                 # print((new_cval.tolist(), betaD.tolist()))
 
@@ -130,6 +134,7 @@ class ContinuousMCTS:
                     crange = self.env.programs_library[pname]['crange']
 
                     dist = Beta(Beta_Parameters[0], Beta_Parameters[1])
+                    # print("mean: " + str(dist.mean) + "     var: " + str(dist.variance))
                     new_cval = crange[0] + crange[1] * dist.sample()
                     # print(new_cval)
                     # Dist_val = np.random.beta(Beta_Parameters[0], Beta_Parameters[1])
@@ -262,6 +267,8 @@ class ContinuousMCTS:
           best child found from this node.
 
         """
+        global avg
+        global num_avg
         best_val = -np.inf
         best_child = None
         # Iterate all the children to fill up the node dict and estimate Q val.
@@ -271,12 +278,17 @@ class ContinuousMCTS:
         for child in node["childs"]:
             if child["prior"] > 0.0:
                 q_val_action = self._compute_q_value(child)
-
+                # if q_val_action != 0:
+                #     avg = (q_val_action + num_avg * avg) / (float(num_avg) + 1.0)
+                #     num_avg += 1
                 action_utility = (self.c_puct * child["prior"] * np.sqrt(node["visit_count"])
                                   * (1.0 / (1.0 + child["visit_count"])))
                 # print(q_val_action)
                 # print(action_utility)
                 # print()
+                # if(q_val_action != 0.0):
+                    # print("qval: " + str(q_val_action) + "    action util: "  + str(action_utility))
+                # print(q_val_action/action_utility)
                 q_val_action += action_utility
                 parent_prog_lvl = self.env.programs_library[self.env.idx_to_prog[node['program_index']]]['level']
                 action_prog_lvl = self.env.programs_library[self.env.idx_to_prog[child['program_from_parent_index']]]['level']
@@ -290,7 +302,7 @@ class ContinuousMCTS:
                     # special treatment for STOP action
                     action_level_closeness = self.level_closeness_coeff * np.exp(-1)
 
-                # q_val_action += action_level_closeness
+                q_val_action += action_level_closeness
                 # val_list.append(q_val_action)
                 # print(q_val_action/(action_utility+action_level_closeness))
                 # print(q_val_action)
@@ -303,6 +315,7 @@ class ContinuousMCTS:
             print("None Child")
         # print(val_list)
         # print(best_val)
+        # print(avg)
         return best_child
 
 
@@ -581,6 +594,10 @@ class ContinuousMCTS:
             # print("num children: " + str(len(final_node['childs'])) + "  depth: "  + str(final_node["depth"]))
             # print([(c.get('cval'), final_node['total_action_value'][i]) for i, c in enumerate(final_node['childs'])])
 
+            # for c in self.root_node["childs"]:
+            #     print("cval: " + str(c["cval"]) + "    visits: "  + str(c["visit_count"]))
+
+            # print([(c.get('cval'), self.root_node['total_action_value'][i]) for i, c in enumerate(self.root_node'childs'])])
 
         # compute final task reward (with gamma penalization)
         reward = self.env.get_reward()

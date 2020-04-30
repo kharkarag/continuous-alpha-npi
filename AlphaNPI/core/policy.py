@@ -251,10 +251,18 @@ class Policy(Module):
             beta_probs.append( batch[3][i][0, 0:batch_len])
             beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
 
+        # if torch.unsqueeze(beta_probs[i],0).size() != beta_l[i].size():
+        #     print("size mismatch")
+        #     print(torch.unsqueeze(beta_probs[i],0).size())
+        #     print(beta_l[i].size())
+        #
+        #     print()
+
         loss_fn = torch.nn.KLDivLoss()
         for i in range(batch_size):
             self.optimizer_beta.zero_grad()
             beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
+            # print(beta_prediction)
             dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
             pdf_t = dist.log_prob(beta_l[i])
             # print(pdf_t.size())
