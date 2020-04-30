@@ -36,7 +36,7 @@ class ContinuousMCTS:
     """
 
     def __init__(self, policy, env, task_index, level_closeness_coeff=1.0,
-                 c_puct=1.0, number_of_simulations=100, max_depth_dict={1: 20, 2: 20, 3: 20},
+                 c_puct=0.5, number_of_simulations=100, max_depth_dict={1: 20, 2: 20, 3: 20},
                  temperature=1.0, use_dirichlet_noise=False,
                  dir_epsilon=0.25, dir_noise=0.03, exploit=False, gamma=0.97, save_sub_trees=False,
                  recursion_depth=0, max_recursion_depth=500, qvalue_temperature=1.0, recursive_penalty=0.9,cpw = 1, kappa = 0.3):
@@ -336,6 +336,8 @@ class ContinuousMCTS:
                 visits_policy.append([i, child["visit_count"]])
                 # print(f"Child: {child.get('cval')} | {child.get('visit_count')} | {child.get('total_action_value')}")
 
+        # print(visits_policy)
+
         mcts_policy = torch.zeros(1, len(root_node["childs"])+pad)
         for i, visit in visits_policy:
             mcts_policy[0, i] = visit
@@ -592,7 +594,7 @@ class ContinuousMCTS:
             final_node, max_depth_reached = self._play_episode(self.root_node)
             final_node['selected'] = True
             # print("num children: " + str(len(final_node['childs'])) + "  depth: "  + str(final_node["depth"]))
-            # print([(c.get('cval'), final_node['total_action_value'][i]) for i, c in enumerate(final_node['childs'])])
+            print([(c.get('cval'), np.mean(c['total_action_value'])) for c in self.root_node['childs']])
 
             # for c in self.root_node["childs"]:
             #     print("cval: " + str(c["cval"]) + "    visits: "  + str(c["visit_count"]))

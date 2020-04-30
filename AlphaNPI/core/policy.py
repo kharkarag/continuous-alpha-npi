@@ -42,8 +42,8 @@ class ContinuousNet(Module):
         self.beta3 = Linear(hidden_size, 2)
 
     def forward(self, hidden_state):
-        beta = F.elu(self.beta1(hidden_state))
-        beta = F.elu(self.beta2(beta))
+        beta = F.relu(self.beta1(hidden_state))
+        beta = F.relu(self.beta2(beta))
         beta = F.softplus(self.beta3(beta))
         return beta
 
@@ -80,11 +80,16 @@ class Policy(Module):
         # Initialize networks
         self.Mprog = Embedding(num_non_primary_programs, embedding_dim)
         self.encoder = encoder
+        self.encoder.cuda()
 
         self.lstm = LSTMCell(self.encoding_dim + self.embedding_dim, self._hidden_size)
+        self.lstm.cuda()
         self.critic = CriticNet(self._hidden_size)
+        self.critic.cuda()
         self.actor = ActorNet(self._hidden_size, self.num_programs)
+        self.actor.cuda()
         self.beta_net = ContinuousNet(self._hidden_size)
+        self.beta_net.cuda()
         self.temperature = temperature
 
         self.entropy_lambda = 0.1
@@ -163,26 +168,25 @@ class Policy(Module):
 
         """
 
+        e_t, h_t, c_t = e_t.cuda(), h_t.cuda(), c_t.cuda()
+
+
         batch_size = len(i_t)
         s_t = self.encoder(e_t.view(batch_size, -1))
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
         # print(relative_prog_indices)
         # print(relative_prog_indices)
-        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
+        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1).cuda()
         # print(p_t)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1).cuda(), p_t], -1),
                                  (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         # print(torch.flatten(s_t).view(batch_size,-1))
-        # print(p_t)
-        # print((h_t.view(batch_size, -1))
-        # print(c_t.view(batch_size, -1))
-        # print(new_h)
-        # print(new_c)
+
         beta_out = self.beta_net(new_h)
         actor_out = self.actor(new_h)
         critic_out = self.critic(new_h)
         # print(actor_out[0])
-        return actor_out, critic_out, new_h, new_c
+        return actor_out.cpu(), critic_out.cpu(), new_h.cpu(), new_c.cpu()
         # return beta_out,actor_out, critic_out, new_h, new_c
 
     def predict_on_batch_beta(self, e_t, i_t, h_t, c_t):
@@ -199,14 +203,17 @@ class Policy(Module):
 
         """
 
+        e_t, h_t, c_t = e_t.cuda(), h_t.cuda(), c_t.cuda()
+
+
         batch_size = len(i_t)
         s_t = self.encoder(e_t.view(batch_size, -1))
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
-        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
+        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1).cuda()
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1).cuda(), p_t], -1),
                                  (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         beta_out = self.beta_net(new_h)
-        return beta_out
+        return beta_out.cpu()
 
     def train_on_batch(self, batch):
         """perform optimization step.
@@ -234,16 +241,19 @@ class Policy(Module):
 
         value_labels = torch.stack(batch[4]).view(-1, 1)
 
+        # i_t = torch.LongTensor([i_t])
+
         self.optimizer.zero_grad()
 
         policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
         policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-        value_loss = torch.pow(value_predictions - value_labels, 2).mean()
+        value_loss = torch.pow(value_predictions - value_labels/100, 2).mean()
         total_loss = (policy_loss + value_loss)
         total_loss.backward()
         self.optimizer.step()
 
         beta_l = batch[5]
+        # print(beta_l.size())
 
         beta_probs = []
         for i in range(batch_size):
@@ -251,36 +261,36 @@ class Policy(Module):
             beta_probs.append( batch[3][i][0, 0:batch_len])
             beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
 
-        # if torch.unsqueeze(beta_probs[i],0).size() != beta_l[i].size():
-        #     print("size mismatch")
-        #     print(torch.unsqueeze(beta_probs[i],0).size())
-        #     print(beta_l[i].size())
-        #
-        #     print()
-
-        loss_fn = torch.nn.KLDivLoss()
+        loss_fn = torch.nn.KLDivLoss(reduction='batchmean')
         for i in range(batch_size):
             self.optimizer_beta.zero_grad()
             beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
             # print(beta_prediction)
             dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
-
             # pdf_t = dist.log_prob(beta_l[i])
 
             pdf_t = torch.exp(dist.log_prob(beta_l[i]))
             pdf_t = pdf_t/torch.sum(pdf_t)
             pdf_t = torch.log(pdf_t)
-            # print(pdf_t)
-            # print(beta_probs[i])
+            # print(pdf_t.size())
+            # print(torch.exp(pdf_t))
 
             # print(torch.unsqueeze(beta_probs[i],0).size())
             # betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
-            betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0))
-            # print(betaLoss)
-            # print()
-            # print()
+            betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
             betaLoss.backward()
             self.optimizer_beta.step()
+
+            # print(betaLoss.item())
+
+
+
+        # print(torch.unsqueeze(beta_probs[i],0).size())
+        # betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
+        # betaLoss = loss_fn(pdf_t, beta_probs)
+        # # print(betaLoss)
+        # betaLoss.backward()
+        # self.optimizer_beta.step()
 
 
         print( "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
@@ -364,10 +374,13 @@ class Policy(Module):
         e_t = torch.FloatTensor(e_t)
         e_t, h, c = e_t.view(1, -1), h.view(1, -1), c.view(1, -1)
         with torch.no_grad():
-            e_t = e_t.to(device)
+            # e_t = e_t.to(device)
+            # i_t = torch.LongTensor([i_t])
             actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
             beta_out = self.predict_on_batch_beta(e_t, [i_t], h, c)
             # beta_out, actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
+            # print(beta_out)
+
         return beta_out, actor_out, critic_out, new_h, new_c
 
     def init_tensors(self):

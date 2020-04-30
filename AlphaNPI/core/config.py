@@ -11,17 +11,17 @@ hidden_size = 128                           # size of hidden state h_t
 learning_rate = 1e-3                        # learning rate for the policy optimizer
 
 # Curriculum hyper-params
-reward_threshold = 14.00                    # reward threshold to increase the tasks levels in curriculum strategy
+reward_threshold = 97.00                    # reward threshold to increase the tasks levels in curriculum strategy
 
 # MCTS hyper-params
 number_of_simulations = 1000                 # number of simulations played before taking an action
-c_puct = 0.65                             # trade-off exploration/exploitation in mcts
+c_puct = 0.5                                # trade-off exploration/exploitation in mcts
 temperature = 0.5                          # coefficient to artificially increase variance in mcts policy distributions
 level_closeness_coeff = 0.0001                 # importance given to higher level programs
 
 # Training hyper-params
 num_iterations = 50                        # total number of iterations, one iteration corresponds to one task
-num_episodes_per_task = 10                  # number of episodes played for each new task attempted
+num_episodes_per_task = 20                  # number of episodes played for each new task attempted
 batch_size = 16                           # training batch size
 # batch_size = 256                            # training batch size
 buffer_max_length = 4000                    # replay buffer max length
