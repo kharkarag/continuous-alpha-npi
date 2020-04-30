@@ -103,9 +103,9 @@ class DrawEnv(Environment):
         if hierarchy:
             self.programs_library = {'STOP': {'level': -1, 'recursive': False, "continuous":False, "crange":None},
                                      'MOVE': {'level': 0, 'recursive': False, "continuous":True, "crange":[0,2*np.pi]},
-                                     'ULINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None}
+                                    #  'ULINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None}
                                      # 'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     # 'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":[0,2*np.pi]},
                                      # 'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
                                      # 'CIRCLE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
                                      # 'TRIANGLE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
@@ -120,9 +120,9 @@ class DrawEnv(Environment):
 
             self.prog_to_precondition = {'STOP': self._stop_precondition,
                                          'MOVE': self._move_precondition,
-                                         'ULINE': self._line_precondition,
+                                        #  'ULINE': self._line_precondition,
                                          # 'DLINE': self._line_precondition,
-                                         # 'LLINE': self._line_precondition,
+                                         'LLINE': self._line_precondition,
                                          # 'RLINE': self._line_precondition,
                                          # 'CIRCLE': self._circle_precondition,
                                          # 'TRIANGLE': self._shape_precondition,
@@ -133,9 +133,9 @@ class DrawEnv(Environment):
             square_vertices = [(100,100), (50,100), (50, 50), (100, 50), (100,100)]
             triangle_vertices = [(100,100), (125,75), (150, 100), (100,100)]
 
-            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-15, 0]),
+            self.prog_to_postcondition = {#'ULINE': self._line_postcondition([-15, 0]),
                                           # 'DLINE': self._line_postcondition([50, 0]),
-                                          # 'LLINE': self._line_postcondition([0, -50]),
+                                          'LLINE': self._line_postcondition([0, -15]),
                                           # 'RLINE': self._line_postcondition([0, 50]),
                                           # 'CIRCLE': self._circle_postcondition,
                                           # 'TRIANGLE': self._shape_postcondition(triangle_vertices),
@@ -175,18 +175,16 @@ class DrawEnv(Environment):
 
     def _move(self, action):
         #This finds the target pixel to move to
-        cartesian = cmath.rect(self.stride, action)
-        movement = np.array([cartesian.imag, cartesian.real])
-        target = self.current_pix + movement
-        if target[0]>=0.0 and target[0]<= self.dim and target[1]>=0.0 and target[1]<= self.dim:
-            #This is probably an inefficient way to find the pixels the line moves through
-            x_move =  np.linspace(self.current_pix[0], target[0], num = 10 * self.stride)
-            y_move = np.linspace(self.current_pix[1], target[1], num = 10 * self.stride)
-            for p in range(x_move.shape[0]):
-                self.current_canvas[int(x_move[p]), int(y_move[p])] = 0.0
-            self.current_pix = target
-
-
+        # cartesian = cmath.rect(self.stride, action)
+        # movement = np.array([cartesian.imag, cartesian.real])
+        # target = self.current_pix + np.rint(movement)
+        # if target[0]>=0.0 and target[0]<= self.dim and target[1]>=0.0 and target[1]<= self.dim:
+        #     #This is probably an inefficient way to find the pixels the line moves through
+        #     x_move =  np.linspace(self.current_pix[0], target[0], num = self.stride)
+        #     y_move = np.linspace(self.current_pix[1], target[1], num = self.stride)
+        #     for p in range(x_move.shape[0]):
+        #         self.current_canvas[int(x_move[p]), int(y_move[p])] = 0.0
+        #     self.current_pix = target
 
         #Find pixels line passes through
         # rr, cc = line(self.current_pix[0], self.current_pix[1], target[0], target[1])
@@ -194,14 +192,16 @@ class DrawEnv(Environment):
 
         # self.current_pix = target
 
-        # cartesian = cmath.rect(action, self.stride)
-        # movement = np.array([cartesian.real, cartesian.imag])
-        #
-        # target = self.current_pix + self.stride*movement.astype(int)
-        # rr, cc = line(self.current_pix[0], self.current_pix[1], target[0], target[1])
-        # self.current_pixel_data[rr, cc] = 0
-        #
-        # self.current_pix = target
+        cartesian = cmath.rect(self.stride, action)
+        movement = np.array([cartesian.imag, cartesian.real])
+        
+        target = self.current_pix + movement.astype(int)
+        rr, cc = line(self.current_pix[0], self.current_pix[1], target[0], target[1])
+        self.current_canvas[rr, cc] = 0
+        
+        self.current_pix = target
+
+        # print(f"target: {target}")
 
     def _move_precondition(self):
         return True
@@ -212,32 +212,33 @@ class DrawEnv(Environment):
     def _line_postcondition(self, direction):
         def _line(init_state, state):
 
-            init_canvas, init_position = init_state
-            canvas, position = state
-            position = np.array(position)
-            init_position = np.array(init_position)
-            ar_direction = np.array(direction)
-            drawn_canvas = np.copy(init_canvas)
-
-
-            target = init_position + ar_direction
-            # This is probably an inefficient way to find the pixels the line moves through
-            x_move = np.linspace(init_position[0], target[0], num=int(10.0 * np.linalg.norm(ar_direction)))
-            y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(ar_direction)))
-            for p in range(x_move.shape[0]):
-                drawn_canvas[int(x_move[p]), int(y_move[p])] = 0.0
-
-            return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + ar_direction)) , drawn_canvas
-
-            # ######################################
             # init_canvas, init_position = init_state
             # canvas, position = state
-            #
+            # position = np.array(position)
+            # init_position = np.array(init_position)
+            # ar_direction = np.array(direction)
             # drawn_canvas = np.copy(init_canvas)
-            # rr, cc = line(init_position[0], init_position[1], init_position[0] + direction[0], init_position[1] + direction[1])
-            # drawn_canvas[rr, cc] = 0
-            #
-            # return np.equal(drawn_canvas, canvas) and np.equal(position, init_position + direction)
+
+            # target = init_position + ar_direction
+            # # This is probably an inefficient way to find the pixels the line moves through
+            # x_move = np.linspace(init_position[0], target[0], num=int(np.linalg.norm(ar_direction)))
+            # y_move = np.linspace(init_position[1], target[1], num=int(np.linalg.norm(ar_direction)))
+            # for p in range(x_move.shape[0]):
+            #     drawn_canvas[int(x_move[p]), int(y_move[p])] = 0.0
+
+            # return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + ar_direction)) , drawn_canvas
+
+            ######################################
+            init_canvas, init_position = init_state
+            canvas, position = state
+            
+            drawn_canvas = np.copy(init_canvas)
+            rr, cc = line(init_position[0], init_position[1], init_position[0] + direction[0], init_position[1] + direction[1])
+            drawn_canvas[rr, cc] = 0
+            
+            # print(f"Line: {init_position + direction}")
+
+            return np.all(np.equal(drawn_canvas, canvas)) and np.all(np.equal(position, init_position + direction)), drawn_canvas
         
         return _line
 
@@ -398,19 +399,25 @@ class DrawEnv(Environment):
         post_program = self.prog_to_postcondition[current_task]
         done, target_canvas = post_program(task_init_state,self.get_state())
 
-        gaussian_canvas = gaussian_filter(target_canvas, sigma=3)
+
+        target_canvas = 1-target_canvas/255
+        gaussian_canvas = gaussian_filter(target_canvas, sigma=5)
 
         # intersection = np.logical_and(target_canvas == 0, canvas == 0)
+        gaussian_canvas = np.maximum(gaussian_canvas, target_canvas)
 
+        intersection = np.multiply(1-canvas/255, gaussian_canvas)
+        intersection = intersection / np.amax(intersection)
+        
+        # print(intersection[intersection > 0])
+        # print(np.argwhere(intersection != 0))
 
-        intersection = np.multiply(1-canvas/255, 1-gaussian_canvas/255)
-        # print((np.sum(1-canvas/255), np.sum(1-target_canvas/255)))
+        union = np.logical_or(target_canvas == 1, canvas == 0)
 
-        # print(f"Int: {np.sum(intersection)}")
+        # score = np.sum(intersection)/np.sum(union)
+        score = 100 * np.sqrt(np.sum(intersection)/np.sum(union))
 
-        union = np.logical_or(target_canvas == 0, canvas == 0)
-        # print(np.sum(union))
-        # print()
-        score = np.sum(intersection)/np.sum(union)
+        # print(intersection[intersection > 0])
+        # print(union[union > 0])
 
         return score
