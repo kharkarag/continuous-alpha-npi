@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-from torch.distributions.categorical import Categorical
 
 class CurriculumScheduler():
     """Implements a curriculum sequencer which is used to decide what is the next task to attempt in
@@ -58,7 +57,6 @@ class CurriculumScheduler():
 
         # compute softmax of scores
         probs /= probs.sum()
-        # print proba
         res = 'sample task with probabilities: '.format(self.maximum_level)
         for prog_name, prog in self.non_primary_programs.items():
             res += ' %s:%.2f ,' % (prog_name, probs[self.relative_indices[prog['index']]])
@@ -100,11 +98,6 @@ class CurriculumScheduler():
         """
         # Update task average reward
         for reward in rewards:
-            # all non-zero rewards are considered to be 1.0 in the curriculum scheduler
-            # if reward > 0.0:
-            #     reward = 1.0
-            # else:
-            #     reward = 0.0
 
             self.tasks_average_rewards[self.relative_indices[task_index]] = self.moving_average*self.tasks_average_rewards[self.relative_indices[task_index]] + (1-self.moving_average)*reward
 

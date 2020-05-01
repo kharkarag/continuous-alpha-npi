@@ -4,8 +4,7 @@ from torch.nn.init import uniform_
 from torch.distributions.beta import Beta
 import torch.nn.functional as F
 import numpy as np
-import scipy
-from scipy import stats
+
 
 device = 'cpu'
 
@@ -18,7 +17,7 @@ class CriticNet(Module):
 
     def forward(self, hidden_state):
         x = F.relu(self.l1(hidden_state))
-        x = torch.relu(self.l2(x))
+        x = F.hardtanh(self.l2(x))*100.0
         return x
 
 
@@ -42,8 +41,8 @@ class ContinuousNet(Module):
         self.beta3 = Linear(hidden_size, 2)
 
     def forward(self, hidden_state):
-        beta = F.relu(self.beta1(hidden_state))
-        beta = F.relu(self.beta2(beta))
+        beta = F.elu(self.beta1(hidden_state))
+        beta = F.elu(self.beta2(beta))
         beta = F.softplus(self.beta3(beta))
         return beta
 
@@ -80,18 +79,14 @@ class Policy(Module):
         # Initialize networks
         self.Mprog = Embedding(num_non_primary_programs, embedding_dim)
         self.encoder = encoder
-        self.encoder.cuda()
 
         self.lstm = LSTMCell(self.encoding_dim + self.embedding_dim, self._hidden_size)
-        self.lstm.cuda()
         self.critic = CriticNet(self._hidden_size)
-        self.critic.cuda()
         self.actor = ActorNet(self._hidden_size, self.num_programs)
-        self.actor.cuda()
         self.beta_net = ContinuousNet(self._hidden_size)
-        self.beta_net.cuda()
         self.temperature = temperature
-
+        self.min_val = 3.0
+        self.val_count = 0
         self.entropy_lambda = 0.1
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
@@ -168,25 +163,15 @@ class Policy(Module):
 
         """
 
-        e_t, h_t, c_t = e_t.cuda(), h_t.cuda(), c_t.cuda()
-
-
         batch_size = len(i_t)
         s_t = self.encoder(e_t.view(batch_size, -1))
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
-        # print(relative_prog_indices)
-        # print(relative_prog_indices)
-        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1).cuda()
-        # print(p_t)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1).cuda(), p_t], -1),
+        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
                                  (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
-        # print(torch.flatten(s_t).view(batch_size,-1))
-
-        beta_out = self.beta_net(new_h)
         actor_out = self.actor(new_h)
         critic_out = self.critic(new_h)
-        # print(actor_out[0])
-        return actor_out.cpu(), critic_out.cpu(), new_h.cpu(), new_c.cpu()
+        return actor_out, critic_out, new_h, new_c
         # return beta_out,actor_out, critic_out, new_h, new_c
 
     def predict_on_batch_beta(self, e_t, i_t, h_t, c_t):
@@ -203,17 +188,15 @@ class Policy(Module):
 
         """
 
-        e_t, h_t, c_t = e_t.cuda(), h_t.cuda(), c_t.cuda()
-
-
         batch_size = len(i_t)
         s_t = self.encoder(e_t.view(batch_size, -1))
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
-        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1).cuda()
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1).cuda(), p_t], -1),
+        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
+        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
                                  (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         beta_out = self.beta_net(new_h)
-        return beta_out.cpu()
+        return beta_out
+
 
     def train_on_batch(self, batch):
         """perform optimization step.
@@ -232,130 +215,47 @@ class Policy(Module):
         h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
         policy_labels = torch.zeros(batch_size, self.num_programs)
         for i in range(batch_size):
-            # print(batch[3][i])
-            # print(batch[5][i])
-            # print()
             batch_len = batch[3][i].size()[1]
             policy_labels[i, 1:self.num_programs] = batch[3][i][0, batch_len - self.num_programs + 1:batch_len]
             policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len - self.num_programs + 1])
 
         value_labels = torch.stack(batch[4]).view(-1, 1)
 
-        # i_t = torch.LongTensor([i_t])
-
         self.optimizer.zero_grad()
 
         policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
         policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-        value_loss = torch.pow(value_predictions - value_labels/100, 2).mean()
+        value_loss = (torch.pow(value_predictions - value_labels, 2).mean())/5.0
         total_loss = (policy_loss + value_loss)
         total_loss.backward()
         self.optimizer.step()
 
         beta_l = batch[5]
-        # print(beta_l.size())
-
+        global weighted
+        global w_count
         beta_probs = []
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1] - self.num_programs + 1
             beta_probs.append( batch[3][i][0, 0:batch_len])
             beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
+            print(beta_probs[i])
+            print(batch[5][i])
+            print()
 
-        loss_fn = torch.nn.KLDivLoss(reduction='batchmean')
+
+        loss_fn = torch.nn.KLDivLoss()
         for i in range(batch_size):
             self.optimizer_beta.zero_grad()
             beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
-            # print(beta_prediction)
             dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
-            # pdf_t = dist.log_prob(beta_l[i])
-
             pdf_t = torch.exp(dist.log_prob(beta_l[i]))
             pdf_t = pdf_t/torch.sum(pdf_t)
             pdf_t = torch.log(pdf_t)
-            # print(pdf_t.size())
-            # print(torch.exp(pdf_t))
-
-            # print(torch.unsqueeze(beta_probs[i],0).size())
-            # betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
-            betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
+            betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i], 0))
             betaLoss.backward()
             self.optimizer_beta.step()
-
-            # print(betaLoss.item())
-
-
-
-        # print(torch.unsqueeze(beta_probs[i],0).size())
-        # betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i],0)) - self.entropy_lambda * dist.entropy()
-        # betaLoss = loss_fn(pdf_t, beta_probs)
-        # # print(betaLoss)
-        # betaLoss.backward()
-        # self.optimizer_beta.step()
-
-
-        print( "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
         return policy_loss, value_loss, total_loss
 
-    # def train_on_batch(self, batch):
-    #     """perform optimization step.
-    #
-    #     Args:
-    #       batch (tuple): tuple of batches of environment observations, calling programs, lstm's hidden and cell states
-    #
-    #     Returns:
-    #       policy loss, value loss, total loss combining policy and value losses
-    #     """
-    #     e_t = torch.FloatTensor(np.stack(batch[0]))
-    #     i_t = batch[1]
-    #     batch_size = len(i_t)
-    #     lstm_states = batch[2]
-    #     h_t, c_t = zip(*lstm_states)
-    #     h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
-    #     policy_labels = torch.zeros(batch_size,self.num_programs)
-    #     for i in range(batch_size):
-    #         batch_len = batch[3][i].size()[1]
-    #         policy_labels[i,1:self.num_programs] = batch[3][i][0,batch_len-self.num_programs+1 :batch_len]
-    #         policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len-self.num_programs+1])
-    #     value_labels = torch.stack(batch[4]).view(-1, 1)
-    #
-    #     self.optimizer.zero_grad()
-    #     policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
-    #     policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-    #     value_loss = torch.pow(value_predictions - value_labels, 2).mean()
-    #     total_loss = (policy_loss + value_loss)
-    #     total_loss.backward()
-    #     self.optimizer.step()
-    #
-    #
-    #
-    #     beta_labels = batch[5]
-    #     beta_probs = []
-    #     for i in range(batch_size):
-    #         batch_len = batch[3][i].size()[1]
-    #         betaL = batch[3][i][0,0:batch_len-self.num_programs+1]
-    #         betaL = betaL/betaL.sum()
-    #         betaL = betaL.view(1,-1)
-    #         beta_probs.append(betaL)
-    #
-    #     loss_fn = torch.nn.KLDivLoss()
-    #
-    #     self.optimizer_beta.zero_grad()
-    #     beta_prediction= self.predict_on_batch_beta(e_t, i_t, h_t, c_t)
-    #     total_betas = 0
-    #     betaLoss = 0.0
-    #     for i in range(batch_size):
-    #         dist = Beta(beta_prediction[i, 0], beta_prediction[i, 1])
-    #         pdf_t = dist.log_prob(beta_labels[i])
-    #         total_betas += pdf_t.size()[1]
-    #         temp = torch.log(beta_probs[i])
-    #         betaLoss +=
-    #         # betaLoss += ((pdf_t - temp)**2.0).sum()- self.entropy_lambda * dist.entropy()
-    #     betaLoss.backward()
-    #
-    #     self.optimizer_beta.step()
-    #
-    #     print("betaLoss: " + str(betaLoss.item()) + "    totalLoss: " + str(total_loss.item()) + "    policyLoss: " + str(policy_loss.item()) + "    valueLoss: " + str(value_loss.item()))
-    #     return policy_loss, value_loss, total_loss
 
     def forward_once(self, e_t, i_t, h, c):
         """Run one NPI inference using predict.
@@ -374,13 +274,10 @@ class Policy(Module):
         e_t = torch.FloatTensor(e_t)
         e_t, h, c = e_t.view(1, -1), h.view(1, -1), c.view(1, -1)
         with torch.no_grad():
-            # e_t = e_t.to(device)
-            # i_t = torch.LongTensor([i_t])
+            e_t = e_t.to(device)
             actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
             beta_out = self.predict_on_batch_beta(e_t, [i_t], h, c)
             # beta_out, actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
-            # print(beta_out)
-
         return beta_out, actor_out, critic_out, new_h, new_c
 
     def init_tensors(self):
