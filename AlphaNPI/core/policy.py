@@ -9,6 +9,9 @@ import numpy as np
 device = 'cpu'
 
 
+beta_pos = 0.0
+beta_neg = 0.0
+
 class CriticNet(Module):
     def __init__(self, hidden_size):
         super(CriticNet, self).__init__()
@@ -17,7 +20,7 @@ class CriticNet(Module):
 
     def forward(self, hidden_state):
         x = F.relu(self.l1(hidden_state))
-        x = F.hardtanh(self.l2(x))*100.0
+        x = torch.tanh(self.l2(x))*100.0
         return x
 
 
@@ -90,7 +93,7 @@ class Policy(Module):
         self.entropy_lambda = 0.1
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
-        self.init_optimizer_beta(lr=learning_rate)
+        self.init_optimizer_beta(lr=1e-3)
         # Compute relative indices of non primary programs (to deal with task indices)
         self.relative_indices = dict(
             (prog_idx, relat_idx) for relat_idx, prog_idx in enumerate(indices_non_primary_programs))
@@ -207,6 +210,7 @@ class Policy(Module):
         Returns:
           policy loss, value loss, total loss combining policy and value losses
         """
+        # print("train on batch")
         e_t = torch.FloatTensor(np.stack(batch[0]))
         i_t = batch[1]
         batch_size = len(i_t)
@@ -238,22 +242,50 @@ class Policy(Module):
             batch_len = batch[3][i].size()[1] - self.num_programs + 1
             beta_probs.append( batch[3][i][0, 0:batch_len])
             beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
-            print(beta_probs[i])
-            print(batch[5][i])
-            print()
+            # print(value_labels[i])
+            # print(beta_probs[i])
+            # print(batch[5][i])
+            # print(batch[3][i])
+            # print()
 
 
+        #TODO IF THIS WORKS CHANGE IT TO NOT UPDATE ANY PROGRAMS OTHER THAN MOVE BY LOOKING AT INDEX AFTER MOVE NODES
+        # global beta_pos
+        # global beta_neg
         loss_fn = torch.nn.KLDivLoss()
         for i in range(batch_size):
-            self.optimizer_beta.zero_grad()
-            beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
-            dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
-            pdf_t = torch.exp(dist.log_prob(beta_l[i]))
-            pdf_t = pdf_t/torch.sum(pdf_t)
-            pdf_t = torch.log(pdf_t)
-            betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i], 0))
-            betaLoss.backward()
-            self.optimizer_beta.step()
+            # print(torch.max(batch[3][i],1))
+            prog_position = torch.max(batch[3][i],1)[1].item()
+            mcts_size = batch[3][i].size()[1]
+
+            # print(mcts_size)
+            # print(prog_position)
+            # if prog_position != mcts_size-1 and prog_position != mcts_size-2:
+            if prog_position < mcts_size - self.num_programs + 1:
+                # print("beta training")
+                print(value_labels[i])
+                print(beta_probs[i])
+                print(batch[5][i])
+                # if value_labels[i] >0.0:
+                #     beta_pos += 1.0
+                # else:
+                #     beta_neg += 1.0
+                # if int( beta_pos + beta_neg)%100:
+                #     print("beta ratio: " + str(beta_pos/(beta_neg+1)))
+                self.optimizer_beta.zero_grad()
+                beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
+                # print(beta_prediction)
+                dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
+                pdf_t = torch.exp(dist.log_prob(beta_l[i]))
+                pdf_t = pdf_t/torch.sum(pdf_t)
+                # print(pdf_t)
+                pdf_t = torch.log(pdf_t)
+                betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i], 0)) - self.entropy_lambda * dist.entropy()
+                # print(betaLoss)
+                # print(self.entropy_lambda*dist.entropy())
+                # print()
+                betaLoss.backward()
+                self.optimizer_beta.step()
         return policy_loss, value_loss, total_loss
 
 
