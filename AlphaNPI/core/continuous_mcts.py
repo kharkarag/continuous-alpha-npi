@@ -37,7 +37,7 @@ class ContinuousMCTS:
     def __init__(self, policy, env, task_index, level_closeness_coeff=1.0,
                  c_puct=1.0, number_of_simulations=100, max_depth_dict={1: 20, 2: 20, 3: 20},
                  temperature=1.0, use_dirichlet_noise=False,
-                 dir_epsilon=0.25, dir_noise=0.03, exploit=False, gamma=0.97, save_sub_trees=False,
+                 dir_epsilon=0.25, dir_noise=0.03, exploit=False, gamma=0.97, save_sub_trees=True,
                  recursion_depth=0, max_recursion_depth=500, qvalue_temperature=1.0, recursive_penalty=0.9, cpw=1,
                  kappa=0.25):
 
@@ -68,7 +68,7 @@ class ContinuousMCTS:
         self.clean_sub_executions = True
 
         # recursive trees parameters
-        self.sub_tree_params = {'number_of_simulations': 2000, 'max_depth_dict': self.max_depth_dict,
+        self.sub_tree_params = {'number_of_simulations': 500, 'max_depth_dict': self.max_depth_dict,
                                 'temperature': self.temperature, 'c_puct': self.c_puct, 'exploit': True,
                                 'level_closeness_coeff': self.level_closeness_coeff, 'gamma': self.gamma,
                                 'save_sub_trees': self.save_sub_trees, 'recursion_depth': recursion_depth + 1}
@@ -368,11 +368,14 @@ class ContinuousMCTS:
                             max_recursion_reached = True
                             continue
 
-                        sub_mcts_init_state = self.env.get_state()
-                        sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params,kappa = 0.5)
-                        sub_trace = sub_mcts.sample_execution_trace()
-                        sub_task_reward, sub_root_node = sub_trace[7], sub_trace[6]
 
+                        for i in range(5):
+                            sub_mcts_init_state = self.env.get_state()
+                            sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params,kappa = 0.5)
+                            sub_trace = sub_mcts.sample_execution_trace()
+                            sub_task_reward, sub_root_node = sub_trace[7], sub_trace[6]
+                            if sub_task_reward > 0.0:
+                                break
                         # if save sub tree is true, then store sub root node
                         if self.save_sub_trees:
                             node['sub_root_node'] = sub_root_node
