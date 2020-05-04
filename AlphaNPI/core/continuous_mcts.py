@@ -6,8 +6,7 @@ import torch
 from scipy import stats
 from torch.distributions.beta import Beta
 
-avg = 0.0
-num_avg = 0
+# first_expand = True
 
 class ContinuousMCTS:
     """This class is used to perform a search over the state space for different paths by building
@@ -69,7 +68,7 @@ class ContinuousMCTS:
         self.clean_sub_executions = True
 
         # recursive trees parameters
-        self.sub_tree_params = {'number_of_simulations': 5, 'max_depth_dict': self.max_depth_dict,
+        self.sub_tree_params = {'number_of_simulations': 2000, 'max_depth_dict': self.max_depth_dict,
                                 'temperature': self.temperature, 'c_puct': self.c_puct, 'exploit': True,
                                 'level_closeness_coeff': self.level_closeness_coeff, 'gamma': self.gamma,
                                 'save_sub_trees': self.save_sub_trees, 'recursion_depth': recursion_depth + 1}
@@ -105,7 +104,10 @@ class ContinuousMCTS:
             )
 
             beta_out, priors, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
-            Beta_Parameters = node["Beta_Parameters"] = betaD = torch.flatten(beta_out)
+            # print(priors)
+
+            Beta_Parameters = node["Beta_Parameters"]  = torch.flatten(beta_out)
+            # print(Beta_Parameters)
             mask = self.env.get_mask_over_actions(program_index)
             # This will give the index for each available program
             for prog_index in [prog_idx for prog_idx, x in enumerate(mask) if x == 1]:
@@ -161,11 +163,13 @@ class ContinuousMCTS:
             node["c_lstm"],
             node["depth"]
         )
-
+        # global first_expand
         with torch.no_grad():
             mask = self.env.get_mask_over_actions(program_index)
             beta_out, priors, value, new_h, new_c = self.policy.forward_once(observation, program_index, h, c)
+            # print(priors)
             betaD = torch.flatten(beta_out)
+            # print(betaD)
             priors = priors * torch.FloatTensor(mask)
             priors = torch.squeeze(priors)
             priors = priors.cpu().numpy()
@@ -173,6 +177,7 @@ class ContinuousMCTS:
                 priors = (1 - self.dir_epsilon) * priors + self.dir_epsilon * np.random.dirichlet(
                     [self.dir_noise] * priors.size)
 
+        # print(priors)
         node["Beta_Parameters"] = betaD
         c_children = self.continuous_children(program_index, betaD)
         # Initialize its children with its probability of being chosen
@@ -181,6 +186,9 @@ class ContinuousMCTS:
             cval = None
             if prog_index in c_children:
                 cval = c_children[prog_index]["cval"]
+                # if first_expand == True:
+                #     print(str(beta_out)+ "     " + str(cval))
+                #     first_expand = False
             new_child = {
                 "parent": node,
                 "childs": [],
@@ -209,10 +217,21 @@ class ContinuousMCTS:
     def _compute_q_value(self, node):
         if node["visit_count"] > 0.0:
             values = torch.FloatTensor(node['total_action_value'])
-            q_val_action = float(values.sum() / float(node["visit_count"]))
+            softmax = torch.exp(self.qvalue_temperature * values)
+            softmax = softmax / softmax.sum()
+            q_val_action = float(torch.dot(softmax, values))
         else:
             q_val_action = 0.0
         return q_val_action
+
+
+    # def _compute_q_value(self, node):
+    #     if node["visit_count"] > 0.0:
+    #         values = torch.FloatTensor(node["total_action_value"])
+    #         q_val_action = float(values.sum() / float(node["visit_count"]))
+    #     else:
+    #         q_val_action = 0.0
+    #     return q_val_action
 
     def _estimate_q_val(self, node):
         """Estimates the Q value over possible actions in a given node, and returns the action
@@ -225,21 +244,28 @@ class ContinuousMCTS:
           best child found from this node.
 
         """
-        global avg
-        global num_avg
         best_val = -np.inf
         best_child = None
         # Iterate all the children to fill up the node dict and estimate Q val.
         # Then track the best child found according to the Q value estimation
         for child in node["childs"]:
             if child["prior"] > 0.0:
+
                 q_val_action = self._compute_q_value(child)
-                action_utility = (self.c_puct * child["prior"] * np.sqrt(node["visit_count"])
+                # if q_val_action > 0.0:
+                #     print("qval: "  + str(q_val_action) + "   cval: " + str(child["cval"]))
+                qconst = q_val_action
+                # if qconst > 0.0:
+                #     print("qval: " + str(q_val_action))
+                action_utility = (self.c_puct * np.sqrt(node["visit_count"])
                                   * (1.0 / (1.0 + child["visit_count"])))
+                # action_utility = (self.c_puct * child["prior"] * np.sqrt(node["visit_count"])
+                #                   * (1.0 / (1.0 + child["visit_count"])))
+                # if qconst > 0.0:
+                #     print("action util: " + str(action_utility))
                 q_val_action += action_utility
                 parent_prog_lvl = self.env.programs_library[self.env.idx_to_prog[node['program_index']]]['level']
-                action_prog_lvl = self.env.programs_library[self.env.idx_to_prog[child['program_from_parent_index']]][
-                    'level']
+                action_prog_lvl = self.env.programs_library[self.env.idx_to_prog[child['program_from_parent_index']]]['level']
 
                 if parent_prog_lvl == action_prog_lvl:
                     # special treatment for calling the same program
@@ -249,6 +275,9 @@ class ContinuousMCTS:
                 else:
                     # special treatment for STOP action
                     action_level_closeness = self.level_closeness_coeff * np.exp(-1)
+
+                # if qconst > 0.0:
+                #     print("qvals: " +str(qconst) + "   "  + str(action_utility) + "   "+ str(action_level_closeness))
 
                 q_val_action += action_level_closeness
 
@@ -340,7 +369,7 @@ class ContinuousMCTS:
                             continue
 
                         sub_mcts_init_state = self.env.get_state()
-                        sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params)
+                        sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params,kappa = 0.5)
                         sub_trace = sub_mcts.sample_execution_trace()
                         sub_task_reward, sub_root_node = sub_trace[7], sub_trace[6]
 
@@ -404,25 +433,29 @@ class ContinuousMCTS:
                     # run a simulation
                     self.recursive_call = False
                     simulation_max_depth_reached, has_expanded_node, node, value = self._run_simulation(root_node)
-
+                    # print(value)
                     # get reward
                     # if not simulation_max_depth_reached and not has_expanded_node:
-                    if not has_expanded_node:
+                    if not simulation_max_depth_reached and not has_expanded_node:
                         reward = self.env.get_reward()
+                        # if reward > 0.0:
+                        # print(reward)
                         if reward > 0:
                             value = self.env.get_reward() * (self.gamma ** node['depth'])
+                            # print(value)
                             if self.recursive_task and not self.recursive_call:
+                                # print("flag")
                                 # if recursive task but do not called itself, add penalization
                                 value -= self.recursive_penalty
                         else:
-                            value = 0.0
+                            value = -1.0
 
                     elif simulation_max_depth_reached:
                         # if episode stops because the max depth allowed was reached, then reward = -1
-                        value = 0.0
+                        value = -1.0
 
                     value = float(value)
-
+                    # print(value)
                     # THIS IS THE ONLY PLACE VISIT COUNT IS INCREMENTED SO IT WIDENS HERE
                     # Propagate information backwards
                     while node["parent"] is not None:
@@ -440,7 +473,10 @@ class ContinuousMCTS:
 
                 # Sample next action
                 mcts_policy, program_to_call_index = self._sample_policy(root_node)
-                num_continuous = len(root_node["childs"]) - self.env.get_num_programs() + 2
+                mask = self.env.get_mask_over_actions(root_node["program_index"])
+                pad = len(np.nonzero(mask)[0])
+
+                num_continuous = len(root_node["childs"]) - pad + 1
                 pname = self.env.get_program_from_index(root_node["childs"][0]["program_from_parent_index"])
                 crange = self.env.programs_library[pname]['crange']
                 cont_vals = torch.zeros(1, num_continuous)
@@ -498,6 +534,7 @@ class ContinuousMCTS:
 
             # prepare empty lists to store trajectory
             self.programs_index = []
+            self.called_program_index = []
             self.observations = []
             self.previous_actions = []
             self.mcts_policies = []
@@ -515,6 +552,7 @@ class ContinuousMCTS:
 
         # compute final task reward (with gamma penalization)
         reward = self.env.get_reward()
+        # print(reward)
         if reward > 0:
             task_reward = reward * (self.gamma ** final_node['depth'])
             if self.recursive_task and not self.global_recursive_call:
@@ -530,6 +568,28 @@ class ContinuousMCTS:
 
         # end task
         self.env.end_task()
+        # for i,c in enumerate(self.root_node["childs"]):
+        #     print(str(i)+"    "+str(c["cval"]) + "   "  + str(len(c["total_action_value"])) + "    "+ str(torch.FloatTensor(c["total_action_value"]).sum())  +"    "+ str(c["total_action_value"]))
+        # print("\n")
+        # for i,c in enumerate(self.cvals):
+        #     if self.rewards[i] > 0.0:
+        # print(self.rewards[i])
+        #     print(self.mcts_policies[i])
+        #     print(self.cvals[i])
+
+        # if self.exploit == True:
+        #     print()
+        #     print()
+        #     print()
+        #     print()
+        #     for i,c in enumerate(self.root_node["childs"]):
+        #         print(str(i)+"    "+str(c["cval"]) + "    visits: "  + str(c["visit_count"]))
+        #     print()
+        #     print()
+        #     print()
+        #     print()
+        global first_expand
+        first_expand = True
         return self.observations, self.programs_index, self.previous_actions, self.mcts_policies, \
                self.lstm_states, max_depth_reached, self.root_node, task_reward, self.clean_sub_executions, self.rewards, \
                self.programs_failed_indices, self.programs_failed_initstates, self.cvals

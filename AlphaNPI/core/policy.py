@@ -126,9 +126,9 @@ class Policy(Module):
         Args:
             lr (float): learning rate
         '''
-
+        # I played with this a little to get a uniform starting output
         for p in self.beta_net.parameters():
-            uniform_(p, self._uniform_init[0], self._uniform_init[1])
+            uniform_(p, -0.03, 0.1)
 
         self.optimizer_beta = torch.optim.Adam(self.beta_net.parameters(), lr=lr)
 
@@ -218,10 +218,21 @@ class Policy(Module):
         h_t, c_t = zip(*lstm_states)
         h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
         policy_labels = torch.zeros(batch_size, self.num_programs)
+
+
+
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1]
             policy_labels[i, 1:self.num_programs] = batch[3][i][0, batch_len - self.num_programs + 1:batch_len]
             policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len - self.num_programs + 1])
+            # print(batch[0][i])
+            # print(batch[1][i])
+            # print(batch[2][i])
+            # print(batch[3][i])
+            # print(batch[4][i])
+            # print(batch[5][i])
+            # print()
+            # print()
 
         value_labels = torch.stack(batch[4]).view(-1, 1)
 
@@ -235,23 +246,20 @@ class Policy(Module):
         self.optimizer.step()
 
         beta_l = batch[5]
-        global weighted
-        global w_count
+        # global weighted
+        # global w_count
         beta_probs = []
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1] - self.num_programs + 1
             beta_probs.append( batch[3][i][0, 0:batch_len])
             beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
-            # print(value_labels[i])
+            # print(batch[4][i])
             # print(beta_probs[i])
             # print(batch[5][i])
             # print(batch[3][i])
             # print()
 
 
-        #TODO IF THIS WORKS CHANGE IT TO NOT UPDATE ANY PROGRAMS OTHER THAN MOVE BY LOOKING AT INDEX AFTER MOVE NODES
-        # global beta_pos
-        # global beta_neg
         loss_fn = torch.nn.KLDivLoss()
         for i in range(batch_size):
             # print(torch.max(batch[3][i],1))
@@ -263,9 +271,9 @@ class Policy(Module):
             # if prog_position != mcts_size-1 and prog_position != mcts_size-2:
             if prog_position < mcts_size - self.num_programs + 1:
                 # print("beta training")
-                print(value_labels[i])
-                print(beta_probs[i])
-                print(batch[5][i])
+                # print(value_labels[i])
+                # print(beta_probs[i])
+                # print(batch[5][i])
                 # if value_labels[i] >0.0:
                 #     beta_pos += 1.0
                 # else:
@@ -274,7 +282,9 @@ class Policy(Module):
                 #     print("beta ratio: " + str(beta_pos/(beta_neg+1)))
                 self.optimizer_beta.zero_grad()
                 beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
-                # print(beta_prediction)
+                # if value_labels[i] > 0.0:
+                #     print(beta_prediction)
+
                 dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
                 pdf_t = torch.exp(dist.log_prob(beta_l[i]))
                 pdf_t = pdf_t/torch.sum(pdf_t)

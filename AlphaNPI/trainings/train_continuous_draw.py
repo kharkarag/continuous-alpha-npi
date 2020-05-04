@@ -3,7 +3,7 @@ from core.curriculum import CurriculumScheduler
 from core.policy import Policy
 import core.config as conf
 from core.trainer import Trainer
-from core.continuous_replay_buffer import ContinuousReplayBuffer
+from core.continuous_replay_buffer import PrioritizedReplayBuffer
 import argparse
 import numpy as np
 import torch
@@ -73,15 +73,15 @@ policy = Policy(encoder, conf.hidden_size, num_programs, num_non_primary_program
 
 # Load replay buffer
 idx_tasks = [prog['index'] for key, prog in env_tmp.programs_library.items() if prog['level'] > 0]
-buffer = ContinuousReplayBuffer(conf.buffer_max_length, idx_tasks, p1=conf.proba_replay_buffer)
+buffer = PrioritizedReplayBuffer(conf.buffer_max_length, idx_tasks, p1=conf.proba_replay_buffer)
 
 # Load curriculum sequencer
 curriculum_scheduler = CurriculumScheduler(conf.reward_threshold, num_non_primary_programs, programs_library,
-                                           moving_average=0.99)
+                                           moving_average=0.50)
 
 # Prepare mcts params
 length = 5
-max_depth_dict = {1: 8, 2: 20, 3: 20}
+max_depth_dict = {1: 3, 2: 4, 3: 3}
 mcts_train_params = {'number_of_simulations': conf.number_of_simulations, 'max_depth_dict': max_depth_dict,
                      'temperature': conf.temperature, 'c_puct': conf.c_puct, 'exploit': False,
                      'level_closeness_coeff': conf.level_closeness_coeff, 'gamma': conf.gamma,

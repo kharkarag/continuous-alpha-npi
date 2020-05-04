@@ -79,7 +79,9 @@ class DrawEnv(Environment):
             self.programs_library = {'STOP': {'level': -1, 'recursive': False, "continuous": False, "crange": None},
                                      'MOVE': {'level': 0, 'recursive': False, "continuous": True,
                                               "crange": [0, 2 * np.pi]},
-                                     'ULINE': {'level': 1, 'recursive': False, "continuous": False, "crange": None}
+                                     'ULINE': {'level': 1, 'recursive': False, "continuous": False, "crange": None},
+                                     'LONGULINE': {'level': 2, 'recursive': False, "continuous": False, "crange": None},
+                                     '6ULINE': {'level': 3, 'recursive': False, "continuous": False, "crange": None},
                                      # 'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
                                      # 'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
                                      # 'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
@@ -97,6 +99,8 @@ class DrawEnv(Environment):
             self.prog_to_precondition = {'STOP': self._stop_precondition,
                                          'MOVE': self._move_precondition,
                                          'ULINE': self._line_precondition,
+                                         'LONGULINE': self._line_precondition,
+                                         '6ULINE': self._line_precondition,
                                          # 'DLINE': self._line_precondition,
                                          # 'LLINE': self._line_precondition,
                                          # 'RLINE': self._line_precondition,
@@ -109,7 +113,9 @@ class DrawEnv(Environment):
             square_vertices = [(100, 100), (50, 100), (50, 50), (100, 50), (100, 100)]
             triangle_vertices = [(100, 100), (125, 75), (150, 100), (100, 100)]
 
-            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-15, 0]),
+            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-3, 0]),
+                                          'LONGULINE': self._line_postcondition([-6, 0]),
+                                          '6ULINE': self._line_postcondition([-18, 0]),
                                           # 'DLINE': self._line_postcondition([50, 0]),
                                           # 'LLINE': self._line_postcondition([0, -50]),
                                           # 'RLINE': self._line_postcondition([0, 50]),
@@ -150,6 +156,8 @@ class DrawEnv(Environment):
 
     def _move(self, action):
         # This finds the target pixel to move to
+        # if action >0.7 and action < 0.8:
+        #     print(action)
         cartesian = cmath.rect(self.stride, action)
         movement = np.array([cartesian.imag, cartesian.real])
         target = self.current_pix + movement
@@ -184,9 +192,14 @@ class DrawEnv(Environment):
             y_move = np.linspace(init_position[1], target[1], num=int(10.0 * np.linalg.norm(ar_direction)))
             for p in range(x_move.shape[0]):
                 drawn_canvas[int(x_move[p]), int(y_move[p])] = 0.0
+            return np.all(np.equal(drawn_canvas, canvas))
+            # return np.all(np.equal(drawn_canvas, canvas)) , drawn_canvas
 
-            return np.all(np.equal(drawn_canvas, canvas)) and np.all(
-                np.equal(position, init_position + ar_direction)), drawn_canvas
+            # return np.all(np.equal(drawn_canvas, canvas)) and np.all(
+            #     np.equal(position, init_position + ar_direction))
+
+            # return np.all(np.equal(drawn_canvas, canvas)) and np.all(
+            #     np.equal(position, init_position + ar_direction)), drawn_canvas
 
             # ######################################
             # init_canvas, init_position = init_state
@@ -339,20 +352,28 @@ class DrawEnv(Environment):
         bool &= (state1[1] == state2[1])
         return bool
 
-    def get_reward(self):
-        """Returns a reward for the current task at hand.
-        Returns:
-            Score based on how close the drawn image is to the target image.
-        """
-        task_init_state = self.tasks_dict[len(self.tasks_list)]
-        canvas, location = self.get_state()
-        current_task = self.get_program_from_index(self.current_task_index)
-        # This should return the canvas I want
-        post_program = self.prog_to_postcondition[current_task]
-        done, target_canvas = post_program(task_init_state, self.get_state())
-        gaussian_canvas = gaussian_filter(target_canvas, sigma=3)
-        # intersection = np.logical_and(target_canvas == 0, canvas == 0)
-        intersection = np.multiply(1 - canvas / 255, 1 - gaussian_canvas / 255)
-        union = np.logical_or(target_canvas == 0, canvas == 0)
-        score = np.sum(intersection) / np.sum(union)
-        return score * 100.0
+    # def get_reward(self):
+    #     """Returns a reward for the current task at hand.
+    #     Returns:
+    #         Score based on how close the drawn image is to the target image.
+    #     """
+    #     task_init_state = self.tasks_dict[len(self.tasks_list)]
+    #     canvas, location = self.get_state()
+    #     current_task = self.get_program_from_index(self.current_task_index)
+    #     # This should return the canvas I want
+    #     post_program = self.prog_to_postcondition[current_task]
+    #     done, target_canvas = post_program(task_init_state, self.get_state())
+    #     if done:
+    #         return 1.0
+    #     else:
+    #         drawn_p = np.where(target_canvas == 0.0)
+    #         # print(drawn_p)
+    #         total = 0.0
+    #         num_drawn = 0.0
+    #         # print(drawn_p[0])
+    #         # print(drawn_p[0].shape)
+    #         for i in range(drawn_p[0].shape[0]):
+    #             if canvas[drawn_p[0][i],drawn_p[1][i]] == 0.0:
+    #                 num_drawn += 1.0
+    #             total += 1.0
+    #         return num_drawn/total

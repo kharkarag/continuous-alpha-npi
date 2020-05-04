@@ -40,7 +40,11 @@ class Trainer():
         traces_lengths = []
         for _ in range(self.num_validation_episodes):
             # Start new episode
-            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_test_params)
+            # print("NEW VALIDATION")
+            # print()
+            # print()
+            # print()
+            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_test_params, kappa = 0.5)
 
             # Sample an execution trace with mcts using policy as a prior
             trace = mcts.sample_execution_trace()
@@ -75,6 +79,7 @@ class Trainer():
                 task_reward, clean_sub_execution, rewards, programs_failed_indices, \
                 programs_failed_initstates, cvals = res
 
+            # print(rewards)
             # record trace and store it in buffer only if no problem in sub-programs execution
             if clean_sub_execution:
                 # Generates trace
