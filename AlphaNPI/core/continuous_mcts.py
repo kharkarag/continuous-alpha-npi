@@ -68,7 +68,7 @@ class ContinuousMCTS:
         self.clean_sub_executions = True
 
         # recursive trees parameters
-        self.sub_tree_params = {'number_of_simulations': 500, 'max_depth_dict': self.max_depth_dict,
+        self.sub_tree_params = {'number_of_simulations': 250, 'max_depth_dict': self.max_depth_dict,
                                 'temperature': self.temperature, 'c_puct': self.c_puct, 'exploit': True,
                                 'level_closeness_coeff': self.level_closeness_coeff, 'gamma': self.gamma,
                                 'save_sub_trees': self.save_sub_trees, 'recursion_depth': recursion_depth + 1}
@@ -369,9 +369,9 @@ class ContinuousMCTS:
                             continue
 
 
-                        for i in range(5):
+                        for i in range(30):
                             sub_mcts_init_state = self.env.get_state()
-                            sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params,kappa = 0.5)
+                            sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params,kappa = 0.44)
                             sub_trace = sub_mcts.sample_execution_trace()
                             sub_task_reward, sub_root_node = sub_trace[7], sub_trace[6]
                             if sub_task_reward > 0.0:

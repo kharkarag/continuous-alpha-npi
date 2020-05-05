@@ -269,33 +269,35 @@ class Policy(Module):
             # print(mcts_size)
             # print(prog_position)
             # if prog_position != mcts_size-1 and prog_position != mcts_size-2:
-            if prog_position < mcts_size - self.num_programs + 1:
-                # print("beta training")
-                # print(value_labels[i])
-                # print(beta_probs[i])
-                # print(batch[5][i])
-                # if value_labels[i] >0.0:
-                #     beta_pos += 1.0
-                # else:
-                #     beta_neg += 1.0
-                # if int( beta_pos + beta_neg)%100:
-                #     print("beta ratio: " + str(beta_pos/(beta_neg+1)))
-                self.optimizer_beta.zero_grad()
-                beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
-                # if value_labels[i] > 0.0:
-                #     print(beta_prediction)
+            #Training on neg lables is flattening distribution for l2 programs
+            if value_labels[i] > 0.0:
+                if prog_position < mcts_size - self.num_programs + 1:
+                    # print("beta training")
+                    # print(value_labels[i])
+                    # print(beta_probs[i])
+                    # print(batch[5][i])
+                    # if value_labels[i] >0.0:
+                    #     beta_pos += 1.0
+                    # else:
+                    #     beta_neg += 1.0
+                    # if int( beta_pos + beta_neg)%100:
+                    #     print("beta ratio: " + str(beta_pos/(beta_neg+1)))
+                    self.optimizer_beta.zero_grad()
+                    beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
+                    # if value_labels[i] > 0.0:
+                    #     print(beta_prediction)
 
-                dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
-                pdf_t = torch.exp(dist.log_prob(beta_l[i]))
-                pdf_t = pdf_t/torch.sum(pdf_t)
-                # print(pdf_t)
-                pdf_t = torch.log(pdf_t)
-                betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i], 0)) - self.entropy_lambda * dist.entropy()
-                # print(betaLoss)
-                # print(self.entropy_lambda*dist.entropy())
-                # print()
-                betaLoss.backward()
-                self.optimizer_beta.step()
+                    dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
+                    pdf_t = torch.exp(dist.log_prob(beta_l[i]))
+                    pdf_t = pdf_t/torch.sum(pdf_t)
+                    # print(pdf_t)
+                    pdf_t = torch.log(pdf_t)
+                    betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i], 0)) - self.entropy_lambda * dist.entropy()
+                    # print(betaLoss)
+                    # print(self.entropy_lambda*dist.entropy())
+                    # print()
+                    betaLoss.backward()
+                    self.optimizer_beta.step()
         return policy_loss, value_loss, total_loss
 
 

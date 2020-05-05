@@ -23,6 +23,11 @@ class CurriculumScheduler():
         self.tasks_stats_updates = np.zeros(num_non_primary_programs)
 
 
+
+    def get_programs_of_level(self, level):
+        #Returns all program indicies of the level
+        return [key['index'] for _,key in self.non_primary_programs.items() if key['level'] == level]
+
     def get_tasks_of_maximum_level(self):
         """Returns the list of programs indices which levels are lower or equals to attribute maximum_level.
 

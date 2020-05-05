@@ -44,7 +44,12 @@ class Trainer():
             # print()
             # print()
             # print()
-            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_test_params, kappa = 0.5)
+            kappa = 0.25
+            #larger kappa intractable for higher level programs on validation but needs to be big for level 1
+            if task_index in self.curriculum_scheduler.get_programs_of_level(1):
+                kappa = 0.5
+
+            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_test_params, kappa = kappa, save_sub_trees= True)
 
             # Sample an execution trace with mcts using policy as a prior
             trace = mcts.sample_execution_trace()
@@ -71,7 +76,7 @@ class Trainer():
         for episode in range(self.num_episodes_per_task):
             print("play iteration episode number: " + str(episode))
             # Start new episode
-            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_train_params)
+            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_train_params, save_sub_trees= True)
 
             # Sample an execution trace with mcts using policy as a prior
             res = mcts.sample_execution_trace()
