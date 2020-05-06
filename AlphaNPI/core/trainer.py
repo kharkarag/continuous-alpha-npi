@@ -1,6 +1,5 @@
-from core.continuous_mcts import ContinuousMCTS
+from core.continuous_mcts import MCTS
 import torch
-import numpy as np
 
 class Trainer():
     """
@@ -40,24 +39,14 @@ class Trainer():
         traces_lengths = []
         for _ in range(self.num_validation_episodes):
             # Start new episode
-            # print("NEW VALIDATION")
-            # print()
-            # print()
-            # print()
-            kappa = 0.25
-            #larger kappa intractable for higher level programs on validation but needs to be big for level 1
-            if task_index in self.curriculum_scheduler.get_programs_of_level(1):
-                kappa = 0.5
-
-            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_test_params, kappa = kappa, save_sub_trees= True)
+            mcts = MCTS(self.policy, self.env, task_index, **self.mcts_test_params)
 
             # Sample an execution trace with mcts using policy as a prior
             trace = mcts.sample_execution_trace()
             task_reward, trace_length, progs_failed_indices = trace[7], len(trace[3]), trace[10]
+
             validation_rewards.append(task_reward)
             traces_lengths.append(trace_length)
-        print(validation_rewards)
-        print("average reward: " + str(np.average(np.array(validation_rewards))))
         return validation_rewards, traces_lengths, progs_failed_indices
 
     def play_iteration(self, task_index, verbose=False):
@@ -76,7 +65,7 @@ class Trainer():
         for episode in range(self.num_episodes_per_task):
             print("play iteration episode number: " + str(episode))
             # Start new episode
-            mcts = ContinuousMCTS(self.policy, self.env, task_index, **self.mcts_train_params, save_sub_trees= True)
+            mcts = MCTS(self.policy, self.env, task_index, **self.mcts_train_params)
 
             # Sample an execution trace with mcts using policy as a prior
             res = mcts.sample_execution_trace()
@@ -84,11 +73,10 @@ class Trainer():
                 task_reward, clean_sub_execution, rewards, programs_failed_indices, \
                 programs_failed_initstates, cvals = res
 
-            # print(rewards)
             # record trace and store it in buffer only if no problem in sub-programs execution
             if clean_sub_execution:
                 # Generates trace
-                trace = list(zip(observations, prog_indices, lstm_states, policy_labels, rewards,cvals))
+                trace = list(zip(observations, prog_indices, lstm_states, policy_labels, rewards, cvals))
                 # Append trace to buffer
                 self.buffer.append_trace(trace)
             else:
@@ -99,10 +87,8 @@ class Trainer():
                 #for idx in programs_failed_indices:
                     #self.curriculum_scheduler.update_statistics(idx, torch.FloatTensor([0.0]))
 
+
             # Train policy on batch
-            # temp =  self.buffer.get_memory_length()
-            # print("buffer length: " + str(self.buffer.get_memory_length()))
-            # print(self.batch_size)
             if self.buffer.get_memory_length() > self.batch_size:
                 for _ in range(self.num_updates_per_episode):
                     batch = self.buffer.sample_batch(self.batch_size)

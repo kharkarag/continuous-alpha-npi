@@ -22,24 +22,25 @@ class PrioritizedReplayBuffer():
         Args:
             trace: a sequence of [(e_0, i_0, (h_0, c_0), pi_0, r_0), ... , (e_T, i_T, (h_T, c_T), pi_T, r_T)]
         '''
-        for tuple in trace:
-            reward = 0 if tuple[4] <= 0.0 else 1
+        for tup in trace:
+            reward = 0 if tup[4] <= 0.0 else 1
             if len(self.stack) >= self.max_length:
                 t_id = self.stack[0][1]
                 r = 0 if self.stack[0][4] <= 0.0 else 1
                 del self.memory_task[t_id][r][0]
                 del self.stack[0]
-            task_id = tuple[1]
-            self.memory_task[task_id][reward].append(tuple)
-            self.stack.append(tuple)
+            task_id = tup[1]
+            self.memory_task[task_id][reward].append(tup)
+            self.stack.append(tup)
 
     def _sample_sub_batch(self, batch_size, memory):
         indices = np.arange(len(memory))
         sampled_indices = np.random.choice(indices, size=batch_size, replace=(batch_size > len(memory)))
-        batch = [[], [], [], [], []]
+        batch = [[], [], [], [], [], []]
         for i in sampled_indices:
-            for k in range(5):
+            for k in range(6):
                 batch[k].append(memory[i][k])
+
         return batch
 
     def sample_batch(self, batch_size):

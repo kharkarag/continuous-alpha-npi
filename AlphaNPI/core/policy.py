@@ -1,39 +1,35 @@
 import torch
-from torch.nn import Linear, LSTMCell, Module, Embedding
+from torch.nn import Linear, LSTMCell, Module, Embedding, KLDivLoss
 from torch.nn.init import uniform_
-from torch.distributions.beta import Beta
 import torch.nn.functional as F
+from torch.distributions.beta import Beta
 import numpy as np
-
 
 device = 'cpu'
 
 
-beta_pos = 0.0
-beta_neg = 0.0
-
 class CriticNet(Module):
     def __init__(self, hidden_size):
         super(CriticNet, self).__init__()
-        self.l1 = Linear(hidden_size, hidden_size // 2)
-        self.l2 = Linear(hidden_size // 2, 1)
+        self.l1 = Linear(hidden_size, hidden_size//2)
+        self.l2 = Linear(hidden_size//2, 1)
 
     def forward(self, hidden_state):
         x = F.relu(self.l1(hidden_state))
-        x = torch.tanh(self.l2(x))*100.0
+        x = torch.tanh(self.l2(x))
         return x
 
 
 class ActorNet(Module):
     def __init__(self, hidden_size, num_programs):
         super(ActorNet, self).__init__()
-        self.program1 = Linear(hidden_size, hidden_size // 2)
-        self.program2 = Linear(hidden_size // 2, num_programs)
+        self.l1 = Linear(hidden_size, hidden_size//2)
+        self.l2 = Linear(hidden_size//2, num_programs)
 
     def forward(self, hidden_state):
-        program = F.relu(self.program1(hidden_state))
-        program = F.softmax(self.program2(program), dim=-1)
-        return program
+        x = F.relu(self.l1(hidden_state))
+        x = F.softmax(self.l2(x), dim=-1)
+        return x
 
 
 class ContinuousNet(Module):
@@ -44,8 +40,8 @@ class ContinuousNet(Module):
         self.beta3 = Linear(hidden_size, 2)
 
     def forward(self, hidden_state):
-        beta = F.elu(self.beta1(hidden_state))
-        beta = F.elu(self.beta2(beta))
+        beta = F.relu(self.beta1(hidden_state))
+        beta = F.relu(self.beta2(beta))
         beta = F.softplus(self.beta3(beta))
         return beta
 
@@ -64,9 +60,8 @@ class Policy(Module):
         indices_non_primary_programs (list): Non zero level programs' indices
         learning_rate (float, optional): Defaults to 10^-3.
     """
-
     def __init__(self, encoder, hidden_size, num_programs, num_non_primary_programs, embedding_dim,
-                 encoding_dim, indices_non_primary_programs, learning_rate=1e-3, temperature=0.1):
+                 encoding_dim, indices_non_primary_programs, learning_rate=1e-3, beta_temperature=0.1, entropy_lambda=0.05):
 
         super(Policy, self).__init__()
 
@@ -75,28 +70,27 @@ class Policy(Module):
         self._hidden_size = hidden_size
         self.num_programs = num_programs
         self.num_non_primary_programs = num_non_primary_programs
+        self.num_continuous_programs = num_programs - num_non_primary_programs
 
         self.embedding_dim = embedding_dim
         self.encoding_dim = encoding_dim
 
         # Initialize networks
-        self.Mprog = Embedding(num_non_primary_programs, embedding_dim)
-        self.encoder = encoder
+        self.Mprog = Embedding(num_non_primary_programs, embedding_dim).cuda()
+        self.encoder = encoder.cuda()
 
-        self.lstm = LSTMCell(self.encoding_dim + self.embedding_dim, self._hidden_size)
-        self.critic = CriticNet(self._hidden_size)
-        self.actor = ActorNet(self._hidden_size, self.num_programs)
-        self.beta_net = ContinuousNet(self._hidden_size)
-        self.temperature = temperature
-        self.min_val = 3.0
-        self.val_count = 0
-        self.entropy_lambda = 0.1
+        self.lstm = LSTMCell(self.encoding_dim + self.embedding_dim, self._hidden_size).cuda()
+        self.critic = CriticNet(self._hidden_size).cuda()
+        self.actor = ActorNet(self._hidden_size, self.num_programs).cuda()
+        self.beta_net = ContinuousNet(self._hidden_size).cuda()
+        self.beta_temperature = beta_temperature
+        self.entropy_lambda = entropy_lambda
+
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
-        self.init_optimizer_beta(lr=1e-3)
+
         # Compute relative indices of non primary programs (to deal with task indices)
-        self.relative_indices = dict(
-            (prog_idx, relat_idx) for relat_idx, prog_idx in enumerate(indices_non_primary_programs))
+        self.relative_indices = dict((prog_idx, relat_idx) for relat_idx, prog_idx in enumerate(indices_non_primary_programs))
 
     def init_networks(self):
 
@@ -111,6 +105,9 @@ class Policy(Module):
 
         for p in self.actor.parameters():
             uniform_(p, self._uniform_init[0], self._uniform_init[1])
+        
+        for p in self.beta_net.parameters():
+            uniform_(p, self._uniform_init[0], self._uniform_init[1])
 
     def init_optimizer(self, lr):
         '''Initialize the optimizer.
@@ -119,18 +116,6 @@ class Policy(Module):
             lr (float): learning rate
         '''
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-
-    def init_optimizer_beta(self, lr):
-        '''Initialize the optimizer.
-
-        Args:
-            lr (float): learning rate
-        '''
-        # I played with this a little to get a uniform starting output
-        for p in self.beta_net.parameters():
-            uniform_(p, -0.03, 0.1)
-
-        self.optimizer_beta = torch.optim.Adam(self.beta_net.parameters(), lr=lr)
 
     def _one_hot_encode(self, digits, basis=6):
         """One hot encode a digit with basis. The digit may be None,
@@ -167,39 +152,20 @@ class Policy(Module):
         """
 
         batch_size = len(i_t)
+        e_t, h_t, c_t = e_t.cuda(), h_t.cuda(), c_t.cuda()
+
         s_t = self.encoder(e_t.view(batch_size, -1))
+
         relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
-        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
-                                 (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
+        relative_prog_indices = torch.LongTensor(relative_prog_indices).cuda()
+        p_t = self.Mprog(relative_prog_indices).view(batch_size, -1)
+
+        new_h, new_c = self.lstm(torch.cat([s_t, p_t], -1), (h_t, c_t))
+
         actor_out = self.actor(new_h)
         critic_out = self.critic(new_h)
-        return actor_out, critic_out, new_h, new_c
-        # return beta_out,actor_out, critic_out, new_h, new_c
-
-    def predict_on_batch_beta(self, e_t, i_t, h_t, c_t):
-        """Run one NPI inference.
-
-        Args:
-          e_t: batch of environment observation
-          i_t: batch of calling program
-          h_t: batch of lstm hidden state
-          c_t: batch of lstm cell state
-
-        Returns:
-          probabilities over programs, value, new hidden state, new cell state
-
-        """
-
-        batch_size = len(i_t)
-        s_t = self.encoder(e_t.view(batch_size, -1))
-        relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
-        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
-                                 (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         beta_out = self.beta_net(new_h)
-        return beta_out
-
+        return actor_out, critic_out, beta_out, new_h, new_c
 
     def train_on_batch(self, batch):
         """perform optimization step.
@@ -210,96 +176,72 @@ class Policy(Module):
         Returns:
           policy loss, value loss, total loss combining policy and value losses
         """
-        # print("train on batch")
         e_t = torch.FloatTensor(np.stack(batch[0]))
         i_t = batch[1]
-        batch_size = len(i_t)
         lstm_states = batch[2]
         h_t, c_t = zip(*lstm_states)
         h_t, c_t = torch.squeeze(torch.stack(list(h_t))), torch.squeeze(torch.stack(list(c_t)))
+
+        batch_size = len(i_t)
         policy_labels = torch.zeros(batch_size, self.num_programs)
-
-
-
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1]
             policy_labels[i, 1:self.num_programs] = batch[3][i][0, batch_len - self.num_programs + 1:batch_len]
             policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len - self.num_programs + 1])
-            # print(batch[0][i])
-            # print(batch[1][i])
-            # print(batch[2][i])
-            # print(batch[3][i])
-            # print(batch[4][i])
-            # print(batch[5][i])
-            # print()
-            # print()
-
         value_labels = torch.stack(batch[4]).view(-1, 1)
 
-        self.optimizer.zero_grad()
+        # beta_dim = torch.tensor([b.squeeze().size()[0] for b in batch[5]]).cuda()
+        policy_labels, value_labels = policy_labels.cuda(), value_labels.cuda()
 
-        policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
+        beta_dim = []
+        beta_probs = []
+        beta_labels = []
+        for i in range(batch_size):
+            # batch_len = batch[3][i].size()[1] - self.num_programs + 1
+            batch_len = batch[5][i].size()[1]
+
+            beta_dim.append(batch[5][i].size()[1])
+
+            beta_labels.append( batch[5][i][0, 0:batch_len])
+            beta_labels[i] += 0.001 * (0.5 - beta_labels[i])
+
+            beta_probs.append( batch[3][i][0, 0:batch_len])
+            if beta_probs[i].sum() > 0:
+                beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
+            else:
+                beta_probs[i] = torch.FloatTensor([0.5]*batch_len)
+        beta_probs = torch.cat(beta_probs, dim=0).cuda()
+        beta_labels = torch.cat(beta_labels, dim=0).cuda()
+        beta_dim = torch.LongTensor(beta_dim).cuda()
+
+
+        self.optimizer.zero_grad()
+        policy_predictions, value_predictions, beta_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
+        beta_prediction_repeated = beta_predictions.repeat_interleave(beta_dim, dim=0)
+
+        dist = Beta(beta_prediction_repeated[:, 0], beta_prediction_repeated[:, 1])
+
+        # print((beta_labels.size(), beta_prediction_repeated.size()))
+
+
+        pdf_t = dist.log_prob(beta_labels)
+
+        # print(pdf_t.size())
+        # print(beta_probs.size())
+
+        beta_loss = pdf_t.exp() * (pdf_t - self.beta_temperature*beta_probs) - self.entropy_lambda * dist.entropy()
+        beta_loss = beta_loss.mean()
         policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-        value_loss = (torch.pow(value_predictions - value_labels, 2).mean())/5.0
-        total_loss = (policy_loss + value_loss)
+        value_loss = torch.pow(value_predictions - value_labels, 2).mean()
+
+        # print(f"P: {policy_loss} | V: {value_loss} | B: {beta_loss}")
+
+        total_loss = (policy_loss + value_loss + beta_loss) / 3
+        # total_loss = (policy_loss + value_loss) / 2
         total_loss.backward()
         self.optimizer.step()
 
-        beta_l = batch[5]
-        # global weighted
-        # global w_count
-        beta_probs = []
-        for i in range(batch_size):
-            batch_len = batch[3][i].size()[1] - self.num_programs + 1
-            beta_probs.append( batch[3][i][0, 0:batch_len])
-            beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
-            # print(batch[4][i])
-            # print(beta_probs[i])
-            # print(batch[5][i])
-            # print(batch[3][i])
-            # print()
-
-
-        loss_fn = torch.nn.KLDivLoss()
-        for i in range(batch_size):
-            # print(torch.max(batch[3][i],1))
-            prog_position = torch.max(batch[3][i],1)[1].item()
-            mcts_size = batch[3][i].size()[1]
-
-            # print(mcts_size)
-            # print(prog_position)
-            # if prog_position != mcts_size-1 and prog_position != mcts_size-2:
-            #Training on neg lables is flattening distribution for l2 programs
-            if value_labels[i] > 0.0:
-                if prog_position < mcts_size - self.num_programs + 1:
-                    # print("beta training")
-                    # print(value_labels[i])
-                    # print(beta_probs[i])
-                    # print(batch[5][i])
-                    # if value_labels[i] >0.0:
-                    #     beta_pos += 1.0
-                    # else:
-                    #     beta_neg += 1.0
-                    # if int( beta_pos + beta_neg)%100:
-                    #     print("beta ratio: " + str(beta_pos/(beta_neg+1)))
-                    self.optimizer_beta.zero_grad()
-                    beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
-                    # if value_labels[i] > 0.0:
-                    #     print(beta_prediction)
-
-                    dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
-                    pdf_t = torch.exp(dist.log_prob(beta_l[i]))
-                    pdf_t = pdf_t/torch.sum(pdf_t)
-                    # print(pdf_t)
-                    pdf_t = torch.log(pdf_t)
-                    betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i], 0)) - self.entropy_lambda * dist.entropy()
-                    # print(betaLoss)
-                    # print(self.entropy_lambda*dist.entropy())
-                    # print()
-                    betaLoss.backward()
-                    self.optimizer_beta.step()
-        return policy_loss, value_loss, total_loss
-
+        return policy_loss, value_loss, beta_loss, total_loss
 
     def forward_once(self, e_t, i_t, h, c):
         """Run one NPI inference using predict.
@@ -318,15 +260,15 @@ class Policy(Module):
         e_t = torch.FloatTensor(e_t)
         e_t, h, c = e_t.view(1, -1), h.view(1, -1), c.view(1, -1)
         with torch.no_grad():
-            e_t = e_t.to(device)
-            actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
-            beta_out = self.predict_on_batch_beta(e_t, [i_t], h, c)
-            # beta_out, actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
-        return beta_out, actor_out, critic_out, new_h, new_c
+            # e_t = e_t.to(device)
+            actor_out, critic_out, beta_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
+        actor_out, critic_out, beta_out, new_h, new_c = actor_out.cpu(), critic_out.cpu(), beta_out.cpu(), new_h.cpu(), new_c.cpu()
+
+        return actor_out, critic_out, beta_out, new_h, new_c
 
     def init_tensors(self):
         """Creates tensors representing the internal states of the lstm filled with zeros.
-
+        
         Returns:
             instantiated hidden and cell states
         """
@@ -334,3 +276,4 @@ class Policy(Module):
         c = torch.zeros(1, self._hidden_size)
         h, c = h.to(device), c.to(device)
         return h, c
+

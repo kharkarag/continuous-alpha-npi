@@ -116,8 +116,6 @@ class Environment(ABC):
         state = self.get_state()
         current_task = self.get_program_from_index(self.current_task_index)
         current_task_postcondition = self.prog_to_postcondition[current_task]
-        # if int(current_task_postcondition(task_init_state, state)) > 0.0:
-        #     print()
         return int(current_task_postcondition(task_init_state, state))
 
     def start_task(self, task_index):
@@ -180,6 +178,7 @@ class Environment(ABC):
         else:
             self.prog_to_func[primary_action](parameter1)
         return self.get_observation()
+        #TODO: return the cval too
 
     def render(self):
         """Print a graphical representation of the current environment state"""
