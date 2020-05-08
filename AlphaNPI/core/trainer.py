@@ -38,12 +38,7 @@ class Trainer():
         """
         validation_rewards = []
         traces_lengths = []
-        for _ in range(self.num_validation_episodes):
-            # Start new episode
-            # print("NEW VALIDATION")
-            # print()
-            # print()
-            # print()
+        for i in range(self.num_validation_episodes):
             kappa = 0.25
             #larger kappa intractable for higher level programs on validation but needs to be big for level 1
             if task_index in self.curriculum_scheduler.get_programs_of_level(1):
@@ -100,9 +95,6 @@ class Trainer():
                     #self.curriculum_scheduler.update_statistics(idx, torch.FloatTensor([0.0]))
 
             # Train policy on batch
-            # temp =  self.buffer.get_memory_length()
-            # print("buffer length: " + str(self.buffer.get_memory_length()))
-            # print(self.batch_size)
             if self.buffer.get_memory_length() > self.batch_size:
                 for _ in range(self.num_updates_per_episode):
                     batch = self.buffer.sample_batch(self.batch_size)
@@ -115,6 +107,7 @@ class Trainer():
         """
         Perform validation for all the tasks and update curriculum scheduelr statistics.
         """
+        print(self.buffer.get_memory_length())
         if self.verbose:
             print("Start validation .....")
         for idx in self.curriculum_scheduler.get_tasks_of_maximum_level():

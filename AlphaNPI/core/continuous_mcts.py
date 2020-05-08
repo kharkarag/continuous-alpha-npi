@@ -78,6 +78,7 @@ class ContinuousMCTS:
         # Go through each program and expand if needed
         mask = self.env.get_mask_over_actions(program_index)
         c_actions = {}
+        # print(betaD)
         # This will give the index for each available program
         for prog_index in [prog_idx for prog_idx, x in enumerate(mask) if x == 1]:
             pname = self.env.get_program_from_index(prog_index)
@@ -85,6 +86,7 @@ class ContinuousMCTS:
                 crange = self.env.programs_library[pname]['crange']
                 dist = Beta(betaD[0], betaD[1])
                 new_cval = crange[0] + crange[1] * dist.sample()
+                # print(new_cval)
                 c_actions[prog_index] = {"cval": new_cval}
         return c_actions
 
@@ -120,7 +122,7 @@ class ContinuousMCTS:
                     crange = self.env.programs_library[pname]['crange']
                     dist = Beta(Beta_Parameters[0], Beta_Parameters[1])
                     new_cval = crange[0] + crange[1] * dist.sample()
-
+                    # print(new_cval)
                     # Need to do a search to get the sum of the priors of the other programs of same type and mult by dist
                     new_child = {
                         "parent": node,
@@ -225,14 +227,6 @@ class ContinuousMCTS:
         return q_val_action
 
 
-    # def _compute_q_value(self, node):
-    #     if node["visit_count"] > 0.0:
-    #         values = torch.FloatTensor(node["total_action_value"])
-    #         q_val_action = float(values.sum() / float(node["visit_count"]))
-    #     else:
-    #         q_val_action = 0.0
-    #     return q_val_action
-
     def _estimate_q_val(self, node):
         """Estimates the Q value over possible actions in a given node, and returns the action
         and the child that have the best estimated value.
@@ -252,17 +246,12 @@ class ContinuousMCTS:
             if child["prior"] > 0.0:
 
                 q_val_action = self._compute_q_value(child)
-                # if q_val_action > 0.0:
-                #     print("qval: "  + str(q_val_action) + "   cval: " + str(child["cval"]))
-                qconst = q_val_action
-                # if qconst > 0.0:
-                #     print("qval: " + str(q_val_action))
+
                 action_utility = (self.c_puct * np.sqrt(node["visit_count"])
                                   * (1.0 / (1.0 + child["visit_count"])))
                 # action_utility = (self.c_puct * child["prior"] * np.sqrt(node["visit_count"])
                 #                   * (1.0 / (1.0 + child["visit_count"])))
-                # if qconst > 0.0:
-                #     print("action util: " + str(action_utility))
+
                 q_val_action += action_utility
                 parent_prog_lvl = self.env.programs_library[self.env.idx_to_prog[node['program_index']]]['level']
                 action_prog_lvl = self.env.programs_library[self.env.idx_to_prog[child['program_from_parent_index']]]['level']
@@ -275,9 +264,6 @@ class ContinuousMCTS:
                 else:
                     # special treatment for STOP action
                     action_level_closeness = self.level_closeness_coeff * np.exp(-1)
-
-                # if qconst > 0.0:
-                #     print("qvals: " +str(qconst) + "   "  + str(action_utility) + "   "+ str(action_level_closeness))
 
                 q_val_action += action_level_closeness
 
@@ -371,7 +357,7 @@ class ContinuousMCTS:
 
                         for i in range(30):
                             sub_mcts_init_state = self.env.get_state()
-                            sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params,kappa = 0.44)
+                            sub_mcts = ContinuousMCTS(self.policy, self.env, program_to_call_index, **self.sub_tree_params,kappa = 0.5)
                             sub_trace = sub_mcts.sample_execution_trace()
                             sub_task_reward, sub_root_node = sub_trace[7], sub_trace[6]
                             if sub_task_reward > 0.0:
@@ -571,28 +557,8 @@ class ContinuousMCTS:
 
         # end task
         self.env.end_task()
-        # for i,c in enumerate(self.root_node["childs"]):
-        #     print(str(i)+"    "+str(c["cval"]) + "   "  + str(len(c["total_action_value"])) + "    "+ str(torch.FloatTensor(c["total_action_value"]).sum())  +"    "+ str(c["total_action_value"]))
-        # print("\n")
-        # for i,c in enumerate(self.cvals):
-        #     if self.rewards[i] > 0.0:
-        # print(self.rewards[i])
-        #     print(self.mcts_policies[i])
-        #     print(self.cvals[i])
 
-        # if self.exploit == True:
-        #     print()
-        #     print()
-        #     print()
-        #     print()
-        #     for i,c in enumerate(self.root_node["childs"]):
-        #         print(str(i)+"    "+str(c["cval"]) + "    visits: "  + str(c["visit_count"]))
-        #     print()
-        #     print()
-        #     print()
-        #     print()
-        global first_expand
-        first_expand = True
+
         return self.observations, self.programs_index, self.previous_actions, self.mcts_policies, \
                self.lstm_states, max_depth_reached, self.root_node, task_reward, self.clean_sub_executions, self.rewards, \
                self.programs_failed_indices, self.programs_failed_initstates, self.cvals

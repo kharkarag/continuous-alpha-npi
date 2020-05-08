@@ -32,15 +32,6 @@ class PrioritizedReplayBuffer():
             self.memory_task[task_id][reward].append(tuple)
             self.stack.append(tuple)
 
-    # def _sample_sub_batch(self, batch_size, memory):
-    #     indices = np.arange(len(memory))
-    #     sampled_indices = np.random.choice(indices, size=batch_size, replace=(batch_size > len(memory)))
-    #     batch = [[], [], [], [], [], []]
-    #     for i in sampled_indices:
-    #         for k in range(6):
-    #             batch[k].append(memory[i][k])
-    #     return batch
-
     def _sample_sub_batch(self, batch_size, memory):
         indices = np.arange(len(memory))
         sampled_indices = np.random.choice(indices, size=batch_size, replace=(batch_size > len(memory)))

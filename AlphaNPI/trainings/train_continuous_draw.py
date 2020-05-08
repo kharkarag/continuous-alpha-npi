@@ -23,7 +23,7 @@ parser.add_argument('--num-cpus', help='number of cpus to use', default=8, type=
 args = parser.parse_args()
 
 # Get arguments
-seed = 25
+seed = 42
 tensorboard = True
 verbose = True
 save_model = True

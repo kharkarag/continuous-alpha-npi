@@ -93,7 +93,7 @@ class Policy(Module):
         self.entropy_lambda = 0.1
         self.init_networks()
         self.init_optimizer(lr=learning_rate)
-        self.init_optimizer_beta(lr=1e-3)
+        # self.init_optimizer_beta(lr=1e-3)
         # Compute relative indices of non primary programs (to deal with task indices)
         self.relative_indices = dict(
             (prog_idx, relat_idx) for relat_idx, prog_idx in enumerate(indices_non_primary_programs))
@@ -112,6 +112,9 @@ class Policy(Module):
         for p in self.actor.parameters():
             uniform_(p, self._uniform_init[0], self._uniform_init[1])
 
+        for p in self.beta_net.parameters():
+            uniform_(p, -0.06, 0.08)
+
     def init_optimizer(self, lr):
         '''Initialize the optimizer.
 
@@ -120,17 +123,6 @@ class Policy(Module):
         '''
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
-    def init_optimizer_beta(self, lr):
-        '''Initialize the optimizer.
-
-        Args:
-            lr (float): learning rate
-        '''
-        # I played with this a little to get a uniform starting output
-        for p in self.beta_net.parameters():
-            uniform_(p, -0.03, 0.1)
-
-        self.optimizer_beta = torch.optim.Adam(self.beta_net.parameters(), lr=lr)
 
     def _one_hot_encode(self, digits, basis=6):
         """One hot encode a digit with basis. The digit may be None,
@@ -174,31 +166,10 @@ class Policy(Module):
                                  (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         actor_out = self.actor(new_h)
         critic_out = self.critic(new_h)
-        return actor_out, critic_out, new_h, new_c
-        # return beta_out,actor_out, critic_out, new_h, new_c
-
-    def predict_on_batch_beta(self, e_t, i_t, h_t, c_t):
-        """Run one NPI inference.
-
-        Args:
-          e_t: batch of environment observation
-          i_t: batch of calling program
-          h_t: batch of lstm hidden state
-          c_t: batch of lstm cell state
-
-        Returns:
-          probabilities over programs, value, new hidden state, new cell state
-
-        """
-
-        batch_size = len(i_t)
-        s_t = self.encoder(e_t.view(batch_size, -1))
-        relative_prog_indices = [self.relative_indices[idx] for idx in i_t]
-        p_t = self.Mprog(torch.LongTensor(relative_prog_indices)).view(batch_size, -1)
-        new_h, new_c = self.lstm(torch.cat([torch.flatten(s_t).view(batch_size, -1), p_t], -1),
-                                 (h_t.view(batch_size, -1), c_t.view(batch_size, -1)))
         beta_out = self.beta_net(new_h)
-        return beta_out
+        return beta_out,actor_out, critic_out, new_h, new_c
+
+
 
 
     def train_on_batch(self, batch):
@@ -225,80 +196,43 @@ class Policy(Module):
             batch_len = batch[3][i].size()[1]
             policy_labels[i, 1:self.num_programs] = batch[3][i][0, batch_len - self.num_programs + 1:batch_len]
             policy_labels[i, 0] = torch.sum(batch[3][i][0:batch_len - self.num_programs + 1])
-            # print(batch[0][i])
-            # print(batch[1][i])
-            # print(batch[2][i])
-            # print(batch[3][i])
-            # print(batch[4][i])
-            # print(batch[5][i])
-            # print()
-            # print()
+
 
         value_labels = torch.stack(batch[4]).view(-1, 1)
 
-        self.optimizer.zero_grad()
-
-        policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t, i_t, h_t, c_t)
-        policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
-        value_loss = (torch.pow(value_predictions - value_labels, 2).mean())/5.0
-        total_loss = (policy_loss + value_loss)
-        total_loss.backward()
-        self.optimizer.step()
 
         beta_l = batch[5]
-        # global weighted
-        # global w_count
         beta_probs = []
         for i in range(batch_size):
             batch_len = batch[3][i].size()[1] - self.num_programs + 1
             beta_probs.append( batch[3][i][0, 0:batch_len])
             beta_probs[i] = beta_probs[i] / beta_probs[i].sum()
-            # print(batch[4][i])
-            # print(beta_probs[i])
-            # print(batch[5][i])
-            # print(batch[3][i])
-            # print()
-
 
         loss_fn = torch.nn.KLDivLoss()
+
+
         for i in range(batch_size):
-            # print(torch.max(batch[3][i],1))
             prog_position = torch.max(batch[3][i],1)[1].item()
             mcts_size = batch[3][i].size()[1]
-
-            # print(mcts_size)
-            # print(prog_position)
-            # if prog_position != mcts_size-1 and prog_position != mcts_size-2:
-            #Training on neg lables is flattening distribution for l2 programs
+            self.optimizer.zero_grad()
+            beta_prediction, policy_predictions, value_predictions, _, _ = self.predict_on_batch(e_t[i], [i_t[i]], h_t[i], c_t[i])
+            # print(beta_prediction)
+            policy_loss = -torch.mean(policy_labels * torch.log(policy_predictions), dim=-1).mean()
+            value_loss = (torch.pow(value_predictions - value_labels, 2).mean())
+            betaLoss = 0.0
             if value_labels[i] > 0.0:
                 if prog_position < mcts_size - self.num_programs + 1:
-                    # print("beta training")
-                    # print(value_labels[i])
-                    # print(beta_probs[i])
-                    # print(batch[5][i])
-                    # if value_labels[i] >0.0:
-                    #     beta_pos += 1.0
-                    # else:
-                    #     beta_neg += 1.0
-                    # if int( beta_pos + beta_neg)%100:
-                    #     print("beta ratio: " + str(beta_pos/(beta_neg+1)))
-                    self.optimizer_beta.zero_grad()
-                    beta_prediction = self.predict_on_batch_beta(e_t[i], [i_t[i]], h_t[i], c_t[i])
-                    # if value_labels[i] > 0.0:
-                    #     print(beta_prediction)
-
-                    dist = Beta(beta_prediction[0,0], beta_prediction[0,1])
+                    dist = Beta(beta_prediction[0, 0], beta_prediction[0, 1])
                     pdf_t = torch.exp(dist.log_prob(beta_l[i]))
-                    pdf_t = pdf_t/torch.sum(pdf_t)
-                    # print(pdf_t)
+                    pdf_t = pdf_t / torch.sum(pdf_t)
                     pdf_t = torch.log(pdf_t)
                     betaLoss = loss_fn(pdf_t, torch.unsqueeze(beta_probs[i], 0)) - self.entropy_lambda * dist.entropy()
-                    # print(betaLoss)
-                    # print(self.entropy_lambda*dist.entropy())
-                    # print()
-                    betaLoss.backward()
-                    self.optimizer_beta.step()
-        return policy_loss, value_loss, total_loss
+
+            total_loss = (policy_loss + value_loss+betaLoss)
+            total_loss.backward()
+            self.optimizer.step()
+
+        # return policy_loss, value_loss, total_loss
 
 
     def forward_once(self, e_t, i_t, h, c):
@@ -319,9 +253,7 @@ class Policy(Module):
         e_t, h, c = e_t.view(1, -1), h.view(1, -1), c.view(1, -1)
         with torch.no_grad():
             e_t = e_t.to(device)
-            actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
-            beta_out = self.predict_on_batch_beta(e_t, [i_t], h, c)
-            # beta_out, actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
+            beta_out, actor_out, critic_out, new_h, new_c = self.predict_on_batch(e_t, [i_t], h, c)
         return beta_out, actor_out, critic_out, new_h, new_c
 
     def init_tensors(self):

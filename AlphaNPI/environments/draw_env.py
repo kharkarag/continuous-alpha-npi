@@ -70,7 +70,7 @@ class DrawEnv(Environment):
         self.current_canvas = np.array(self._create_new_canvas())
 
 
-        self.current_pix = np.array([dim // 2] * 2)
+        self.current_pix = np.array([dim / 2.0+0.5] * 2)
         self.stride = 3
         self.encoding_dim = encoding_dim
         self.has_been_reset = False
@@ -80,11 +80,12 @@ class DrawEnv(Environment):
                                      'MOVE': {'level': 0, 'recursive': False, "continuous": True,
                                               "crange": [0, 2 * np.pi]},
                                      'ULINE': {'level': 1, 'recursive': False, "continuous": False, "crange": None},
-                                     'LONGULINE': {'level': 2, 'recursive': False, "continuous": False, "crange": None},
-                                     '6ULINE': {'level': 3, 'recursive': False, "continuous": False, "crange": None},
-                                     # 'DLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     # 'LLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
-                                     # 'RLINE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
+                                     'ZDLINE': {'level': 1, 'recursive': False, "continuous": False, "crange": None},
+                                     # 'ZLLINE': {'level': 1, 'recursive': False, "continuous": False, "crange": None},
+                                     # 'ZRLINE': {'level': 1, 'recursive': False, "continuous": False, "crange": None},
+
+                                     # 'ZLONGULINE': {'level': 2, 'recursive': False, "continuous": False, "crange": None},
+                                     # 'Z6ULINE': {'level': 3, 'recursive': False, "continuous": False, "crange": None},
                                      # 'CIRCLE': {'level': 1, 'recursive': False, "continuous":False, "crange":None},
                                      # 'TRIANGLE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
                                      # 'LSHAPE': {'level': 2, 'recursive': False, "continuous":False, "crange":None},
@@ -99,11 +100,11 @@ class DrawEnv(Environment):
             self.prog_to_precondition = {'STOP': self._stop_precondition,
                                          'MOVE': self._move_precondition,
                                          'ULINE': self._line_precondition,
-                                         'LONGULINE': self._line_precondition,
-                                         '6ULINE': self._line_precondition,
-                                         # 'DLINE': self._line_precondition,
-                                         # 'LLINE': self._line_precondition,
-                                         # 'RLINE': self._line_precondition,
+                                         'ZDLINE': self._line_precondition,
+                                         # 'ZLLINE': self._line_precondition,
+                                         # 'ZRLINE': self._line_precondition,
+                                         # 'ZLONGULINE': self._line_precondition,
+                                         # 'Z6ULINE': self._line_precondition,
                                          # 'CIRCLE': self._circle_precondition,
                                          # 'TRIANGLE': self._shape_precondition,
                                          # 'LSHAPE': self._shape_precondition,
@@ -113,12 +114,13 @@ class DrawEnv(Environment):
             square_vertices = [(100, 100), (50, 100), (50, 50), (100, 50), (100, 100)]
             triangle_vertices = [(100, 100), (125, 75), (150, 100), (100, 100)]
 
-            self.prog_to_postcondition = {'ULINE': self._line_postcondition([-3, 0]),
-                                          'LONGULINE': self._line_postcondition([-6, 0]),
-                                          '6ULINE': self._line_postcondition([-18, 0]),
-                                          # 'DLINE': self._line_postcondition([50, 0]),
-                                          # 'LLINE': self._line_postcondition([0, -50]),
-                                          # 'RLINE': self._line_postcondition([0, 50]),
+            self.prog_to_postcondition = {
+                                          'ULINE': self._line_postcondition([-3.0, 0]),
+                                          'ZDLINE': self._line_postcondition([3.0, 0]),
+                                          # 'ZLLINE': self._line_postcondition([0, -3.0]),
+                                          # 'ZRLINE': self._line_postcondition([0, 3.0]),
+                                          # 'ZLONGULINE': self._line_postcondition([-6.0, 0]),
+                                          # 'Z6ULINE': self._line_postcondition([-18.0, 0]),
                                           # 'CIRCLE': self._circle_postcondition,
                                           # 'TRIANGLE': self._shape_postcondition(triangle_vertices),
                                           # 'LSHAPE': self._shape_postcondition('LSHAPE'), #TODO
@@ -283,7 +285,7 @@ class DrawEnv(Environment):
         self.current_canvas[cur_x, cur_y] = 0
         # self.current_pixel_data = np.array(self.current_canvas)
         # start at center
-        self.current_pix = np.array([self.width // 2, self.height // 2])
+        self.current_pix = np.array([self.width / 2.0+0.5, self.height / 2.0+0.5])
         self.has_been_reset = True
         return self.get_observation()
 
